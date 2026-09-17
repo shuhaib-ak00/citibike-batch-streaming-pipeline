@@ -147,11 +147,10 @@ LIMIT 5
 | −245 | Washington St & Barrow St | #530 |
 | −233 | 8 Ave & W 52 St | #135 |
 
-**Insight penting untuk presentasi:** perhatikan bahwa stasiun dengan
-net_flow ekstrem **belum tentu** stasiun tersibuk (mis. Eastern Pkwy &
-Kingston Ave hanya rank #525). Artinya ketidakseimbangan **tidak bisa**
-ditebak dari popularitas saja — inilah alasan tim ops butuh metrik net_flow
-yang dihitung otomatis.
+**Insight penting:** stasiun dengan net_flow ekstrem **belum tentu** stasiun
+tersibuk (mis. Eastern Pkwy & Kingston Ave hanya rank #525). Artinya
+ketidakseimbangan **tidak bisa** ditebak dari popularitas saja — inilah alasan
+tim ops butuh metrik net_flow yang dihitung otomatis.
 
 > **Catatan perbaikan data:** sebelum normalisasi `station_id`, nilai
 > net_flow ekstrem mencapai ±4.500 karena satu stasiun tercatat sebagai dua
@@ -324,11 +323,11 @@ ORDER BY total_trips DESC
 | member | 5.279.590 | 88,70% | 10,45 mnt | 1,81 km | 71,2% | 24,0% |
 | casual | 672.482 | 11,30% | 16,60 mnt | 2,05 km | 79,2% | 34,9% |
 
-**Insight untuk presentasi:** casual **60% lebih lama** per trip
-(16,6 vs 10,45 menit) dan porsi akhir pekannya lebih besar
-(34,9% vs 24,0%) — konsisten dengan profil wisatawan/rekreasi, sementara
-member adalah komuter rutin. Konsekuensinya: member lebih sensitif
-terhadap stasiun kosong saat jam sibuk, casual lebih sensitif saat akhir pekan.
+**Insight:** casual **60% lebih lama** per trip (16,6 vs 10,45 menit) dan porsi
+akhir pekannya lebih besar (34,9% vs 24,0%) — konsisten dengan profil
+wisatawan/rekreasi, sementara member adalah komuter rutin. Konsekuensinya:
+member lebih sensitif terhadap stasiun kosong saat jam sibuk, casual lebih
+sensitif saat akhir pekan.
 
 ---
 

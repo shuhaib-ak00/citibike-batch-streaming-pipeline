@@ -12,9 +12,9 @@ di bagian [Auto-refresh](#auto-refresh-kenapa-murah).
 ## Kenapa chart 5-6 butuh perlakuan berbeda
 
 Chart batch (1-4) aman memakai view: datanya hanya berubah setelah `dbt run`.
-Chart streaming sebaliknya — kalau tidak ada auto-refresh, penguji melihat
-tabel beku yang tidak membuktikan apa pun. Justru **perubahan angkanya** yang
-menjadi bukti pipeline streaming hidup.
+Chart streaming sebaliknya — tanpa auto-refresh, tabelnya tampak beku dan tidak
+menunjukkan bahwa pipeline-nya hidup. Justru **perubahan angkanya** yang menjadi
+bukti aliran streaming berjalan.
 
 Karena itu dua hal disiapkan khusus:
 
@@ -73,7 +73,7 @@ WHERE lat IS NOT NULL
 ORDER BY risk_severity DESC
 ```
 
-Jika peta tampak terlalu padat, tambahkan filter saat presentasi:
+Jika peta tampak terlalu padat, tambahkan filter untuk memperjelas tampilan:
 
 ```sql
 -- hanya stasiun yang butuh perhatian
@@ -159,10 +159,9 @@ ORDER BY risk_rank
 | 5 | E 53 St & Madison Ave | 0 | 51 | 0,0% | empty | 26 |
 | 6 | N 10 St & Berry St | 0 | 47 | 0,0% | empty | 24 |
 
-> **Insight untuk presentasi:** lima teratas adalah stasiun di kawasan
-> **perkantoran Midtown Manhattan** — persis pola yang dijelaskan di problem
-> statement: stasiun perkantoran kehabisan sepeda. Ini bukan kebetulan yang
-> kami cari; inilah alasan tim ops perlu metrik otomatis.
+> **Insight:** lima teratas adalah stasiun di kawasan **perkantoran Midtown
+> Manhattan** — persis pola pada problem statement: stasiun perkantoran
+> kehabisan sepeda. Inilah alasan tim ops perlu metrik otomatis.
 
 **Format tampilan:** aktifkan *Conditional Formatting → Color scale* pada
 `occupancy_pct` agar baris merah untuk kosong dan biru untuk penuh langsung
@@ -259,8 +258,7 @@ menyimpulkan "stasiun ini ramai" dari `total_activity` mentah.
 
 ## Auto-refresh: kenapa murah
 
-Ini bagian yang membedakan dashboard streaming dari batch, dan layak
-dijelaskan saat presentasi.
+Ini bagian yang membedakan dashboard streaming dari batch.
 
 | Konfigurasi | Bytes scanned per refresh | 1.440 refresh/hari |
 |---|---|---|
@@ -341,7 +339,7 @@ Angka yang diharapkan: `total 2.449`, `segar 2.432`, `basi 17`, `median 63`,
 | Angka tidak berubah saat auto-refresh | Mart belum di-refresh dbt | Streaming mengisi *raw*; mart perlu `dbt run` untuk memperbarui |
 | "Tidak ada stasiun tanpa kapasitas" padahal ada | `capacity` NULL disaring di mart | Memang disengaja — occupancy tidak bisa dihitung tanpa kapasitas |
 | Kolom `region_id` kosong di sebagian baris | 250 stasiun tanpa region di feed GBFS | Normal; jangan dipakai sebagai filter wajib |
-| Peta padat tak terbaca | 2.449 pin sekaligus | Filter `risk_level IN ('empty','low','high','full')` saat presentasi |
+| Peta padat tak terbaca | 2.449 pin sekaligus | Filter `risk_level IN ('empty','low','high','full')` |
 
 ### Mart datar (semua angkanya sama)
 

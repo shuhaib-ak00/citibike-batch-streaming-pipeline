@@ -1,14 +1,11 @@
 # ERD — Entity Relationship Diagram
 
-Dua versi: **lengkap** (untuk dokumentasi & referensi) dan **ringkas** (untuk
-slide — harus terbaca dari jauh).
+Skema yang dipakai: **fact constellation** — dua fact table berbagi dua
+dimensi.
 
 ---
 
-## 1. Versi ringkas — untuk slide
-
-Gunakan ini di slide 10. Hanya tabel dan relasi, tanpa kolom, supaya terbaca
-saat diproyeksikan.
+## 1. Ringkasan relasi
 
 ```mermaid
 erDiagram
@@ -19,19 +16,20 @@ erDiagram
     dim_date ||--o{ fct_station_status : "snapshot_date_key"
 ```
 
-**Yang perlu diucapkan sambil menunjuk diagram ini:**
+| Fact | Tipe | Grain |
+|---|---|---|
+| `fct_trips` | Transaction fact | 1 baris per perjalanan |
+| `fct_station_status` | Periodic snapshot fact | 1 baris per stasiun per polling |
 
-> "Fact constellation — dua fact table berbagi dua dimensi. `dim_station` dan
-> `dim_date` dipakai keduanya. `dim_rider_type` hanya relevan untuk trip.
->
-> `fct_trips` adalah **transaction fact**: satu baris per perjalanan.
-> `fct_station_status` adalah **periodic snapshot fact**: satu baris per
-> stasiun per polling. Bedanya penting karena menentukan cara beragregasi —
-> periodic snapshot memakai `GROUP BY` bucket waktu, bukan validity window."
+Perbedaan tipe itu menentukan cara beragregasi: periodic snapshot memakai
+`GROUP BY` bucket waktu, bukan validity window.
+
+`dim_rider_type` hanya relevan untuk `fct_trips`, sedangkan `dim_station` dan
+`dim_date` dipakai kedua fact.
 
 ---
 
-## 2. Versi lengkap — untuk referensi
+## 2. Detail kolom
 
 ```mermaid
 erDiagram
@@ -152,15 +150,15 @@ erDiagram
     station_information ||--o{ station_status : "station_id (ID GBFS)"
 ```
 
-**Perhatikan:** `trips` **tidak** terhubung langsung ke apa pun di layer raw.
-Itulah akar masalahnya — lihat bagian berikutnya.
+Catatan: `trips` tidak terhubung langsung ke tabel mana pun di layer raw.
+Penghubungnya baru terbentuk di `dim_station` — lihat bagian 4.
 
 ---
 
-## 4. `dim_station` adalah jembatan dua ruang ID
+## 4. `dim_station` sebagai jembatan dua ruang ID
 
-Ini konsep terpenting di ERD ini, dan penyebab dimensi tersebut punya **dua**
-kolom ID.
+Kedua fact table memakai gaya ID yang berbeda, dan `dim_station` yang
+menghubungkannya. Inilah sebabnya dimensi tersebut menyimpan dua kolom ID.
 
 ```mermaid
 flowchart LR
@@ -183,8 +181,8 @@ ironisnya justru berisi ID legacy itu sendiri.
 | `station_id` | `fct_trips` | legacy: `5343.10`, `JC116`, `HB602` |
 | `gbfs_station_id` | `fct_station_status` | UUID / snowflake GBFS |
 
-**Konsekuensi yang mudah diingat:** trip dan status stasiun hanya bisa
-dibandingkan **lewat `dim_station`**, tidak pernah langsung.
+Konsekuensinya: trip dan status stasiun hanya dapat dibandingkan lewat
+`dim_station`, tidak pernah secara langsung.
 
 ---
 
@@ -216,16 +214,15 @@ flowchart TD
     isr --> isd
 ```
 
-**Perhatikan:** `int_station_risk_calculation` (intermediate) membaca
-`dim_station` (core). Itulah mengapa urutan layer dbt **tidak bisa** dijalankan
-per tag — intermediate butuh core. Karena itu DAG memakai
-`dbt run --exclude tag:staging` dalam satu perintah, biar dbt yang mengurutkan.
+`int_station_risk_calculation` (layer intermediate) membaca `dim_station`
+(layer core), sehingga eksekusi dbt tidak dapat diurutkan per tag — intermediate
+membutuhkan core lebih dulu. Karena itu DAG menjalankan
+`dbt run --exclude tag:staging` dalam satu perintah dan membiarkan dbt
+menentukan urutannya.
 
 ---
 
 ## 6. Materialisasi
-
-Kalau penguji membuka BigQuery, mereka akan melihat ini:
 
 | Layer | Materialisasi | Alasan |
 |---|---|---|
@@ -244,9 +241,10 @@ Kalau penguji membuka BigQuery, mereka akan melihat ini:
 
 ---
 
-## 7. Tiga jebakan relasi yang sudah ditangani
+## 7. Penanganan kasus khusus
 
-Hal-hal ini **tidak terlihat di diagram**, tapi biasa ditanyakan penguji.
+Tiga hal berikut tidak terlihat di diagram, tetapi menentukan kebenaran relasi
+antar tabel.
 
 ### 7.1 `capacity` NULL ≠ 0
 
@@ -259,8 +257,8 @@ Kalau 0 dipakai apa adanya, `occupancy_rate_pct` menjadi bagi-nol. Karena itu:
 CASE WHEN i.capacity > 0 THEN i.capacity END AS capacity
 ```
 
-→ NULL = **tidak diketahui**, dan ditandai `has_capacity_info`. Dua hal itu
-berbeda arti.
+NULL berarti **tidak diketahui**, dan ditandai `has_capacity_info`. Nilai 0 dan
+"tidak diketahui" diperlakukan berbeda.
 
 ### 7.2 `dim_date` diambil dari gabungan, bukan hanya trip
 
@@ -283,15 +281,14 @@ CASE WHEN start_station_id IS NOT NULL
 END AS start_station_key
 ```
 
-NULL, **bukan** hash dari string kosong. Kalau di-hash, nilai itu jadi kunci
-yang tidak ada di dimensi dan test `relationships` akan gagal. NULL dilewati
-test tersebut, jadi maknanya terjaga.
+Nilai NULL, bukan hash dari string kosong. Bila di-hash, kunci itu tidak akan
+ditemukan di dimensi dan test `relationships` gagal — sedangkan NULL dilewati
+test tersebut, sehingga maknanya terjaga.
 
-**Konsistensi dengan lapisan delta:** karena `station_key` **NULL untuk 82.531
-baris** (9,9%), `int_station_status_changes` memakai `gbfs_station_id` sebagai
-kunci perbandingan — kolom itu tidak pernah NULL. Memakai `station_key` di sana
-membuat semua baris NULL masuk satu partisi `LAG()` dan membandingkan stasiun
-yang berbeda (terbukti: 59% baris salah).
+Kasus serupa muncul di lapisan delta: `station_key` NULL untuk 82.531 baris
+(9,9%), sehingga `int_station_status_changes` memakai `gbfs_station_id` sebagai
+kunci perbandingan. Bila `station_key` dipakai, semua baris NULL masuk satu
+partisi `LAG()` dan perubahan antar stasiun berbeda tercampur.
 
 ---
 
