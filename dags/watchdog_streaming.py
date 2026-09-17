@@ -1,33 +1,22 @@
 """DAG: watchdog streaming.
 
-**Masalah yang diselesaikan.** Pipeline streaming bisa berhenti tanpa
-menghasilkan error apa pun. Airflow tetap sehat, container masih "Up",
-tetapi tidak ada data baru yang masuk. Penyebabnya bermacam-macam: laptop
-sleep, consumer mati, API GBFS berubah bentuk, atau load ke BigQuery gagal.
-Tidak satu pun memicu ``on_failure_callback``, karena tidak ada task yang
-gagal — yang gagal adalah sesuatu yang seharusnya terus berjalan.
+Pipeline streaming bisa berhenti tanpa error apa pun: Airflow sehat, container
+masih "Up", tetapi tidak ada data masuk (laptop sleep, consumer mati, skema
+GBFS berubah, load ke BigQuery gagal). Tidak satu pun memicu
+``on_failure_callback`` karena tidak ada task yang gagal.
 
-Watchdog ini menutup celah itu: ia memeriksa **gejala**, bukan prosesnya.
-Kalau data berhenti bertambah, tidak penting apa penyebabnya.
+Karena itu watchdog memeriksa GEJALA, bukan proses:
 
-Empat pemeriksaan, masing-masing menjawab pertanyaan berbeda
------------------------------------------------------------
-1. ``check_freshness``         — rantai ujung-ke-ujung: apakah data terbaru
-   di warehouse sudah terlalu tua? Ini pemeriksaan utama.
-2. ``check_consumer_liveness`` — apakah consumer masih menulis ke datalake?
-   Dipisah dari (1) agar bisa dipersempit: consumer hidup tetapi data di
-   warehouse tetap tua berarti masalahnya di load, bukan di consumer.
-3. ``check_dlq_growth``        — apakah payload mulai rusak beruntun?
-   Indikasi kuat API GBFS mengubah bentuk responsnya.
-4. ``check_staging_rejection`` — apakah proporsi karantina melonjak?
-   Sinyal masalah sistemik, bukan noise.
+    check_freshness          data terbaru di warehouse terlalu tua? (utama)
+    check_consumer_liveness  consumer masih menulis ke datalake?
+    check_dlq_growth         payload mulai rusak beruntun?
+    check_staging_rejection  proporsi karantina melonjak?
 
-Keputusan desain: watchdog **tidak** menghentikan apa pun. Ia hanya
-mengamati dan memberi tahu. Mematikan pipeline otomatis akan menghilangkan
-data yang mungkin masih bisa diselamatkan.
+Dua yang pertama dipisah agar letak masalah bisa dipersempit: consumer hidup
+tetapi warehouse tetap tua berarti masalahnya di load, bukan di consumer.
 
-Ambang dan dedup alert diatur lewat variabel lingkungan, sehingga tidak
-perlu mengubah kode untuk menyesuaikan tingkat kepekaannya.
+Watchdog tidak menghentikan apa pun — hanya mengamati lalu memberi tahu.
+Ambang diatur lewat variabel lingkungan; lihat ``.env.example``.
 """
 from __future__ import annotations
 

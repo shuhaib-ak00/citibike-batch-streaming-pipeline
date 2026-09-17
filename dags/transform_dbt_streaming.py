@@ -1,54 +1,30 @@
-"""DAG: transformasi streaming (dbt) — refresh rantai mart operasional.
+"""DAG: refresh rantai mart streaming (dbt), tiap jam.
 
-**Masalah yang diselesaikan.** Sebelumnya seluruh model dbt hanya dibangun
-saat `citibike_transform_batch` berjalan, dan DAG itu terpicu sekali sehari
-oleh Dataset `RAW_TRIPS`. Akibatnya mart streaming — yang sumbernya
-bertambah tiap ±90 detik — menampilkan kondisi **hampir 24 jam lalu**.
-Auto-refresh Metabase hanya membaca ulang isi tabel yang sama, jadi peta
-"kondisi terkini" tidak pernah benar-benar terkini.
+    dbt_deps -> dbt_run_staging_streaming -> check_quarantine_surge
+      -> dbt_run_marts_streaming -> dbt_test_streaming
 
-DAG ini memperbarui **hanya rantai streaming**, setiap jam.
+Catatan pengembangan:
 
-Mengapa daftar model eksplisit
-------------------------------
-1. **Tanpa tanda `+`.** `dbt run --select +station_availability_realtime`
-   ikut membangun seluruh leluhurnya, termasuk `dim_station` -> `stg_trips`
-   -> memindai `raw.trips` (1,1 GiB) setiap jam. Dimensi bersama cukup
-   dipakai dari hasil run harian; kapasitas stasiun jarang berubah.
-2. **Tanpa tag.** `int_station_risk_calculation` (streaming) membutuhkan
-   `dim_station` (batch), jadi tag murni tidak cukup dan urutannya tidak
-   dapat diandalkan.
+- Daftar model eksplisit. JANGAN pakai tanda ``+``: itu ikut menarik
+  ``dim_station`` -> ``stg_trips`` -> memindai ``raw.trips`` (1,1 GiB) tiap
+  jam. Dimensi bersama cukup dipakai dari hasil run harian.
 
-Daftar ini bersifat **optimasi**, bukan satu-satunya penjamin: DAG batch
-menjalankan `--exclude tag:staging` sehingga tetap membangun model apa pun
-yang belum tercantum di sini. Model baru karena itu tidak akan "hilang",
-hanya tertunda sampai run harian berikutnya.
+- Tag juga tidak dipakai karena ``int_station_risk_calculation`` (streaming)
+  membutuhkan ``dim_station`` (batch), sehingga urutannya tidak dapat
+  diandalkan.
 
-Mengapa gate DQ-nya terpisah
-----------------------------
-Gate di DAG batch dulu memeriksa trip DAN station_status, lalu menghentikan
-SELURUH transformasi. Artinya kualitas data streaming yang memburuk akan
-memblokir mart trip yang tidak ada hubungannya. Setiap aliran kini menjaga
-ambangnya sendiri.
+- Daftar ini optimasi, bukan penjamin. DAG batch menjalankan
+  ``--exclude tag:staging``, jadi model baru tetap dibangun — hanya tertunda
+  sampai run harian berikutnya.
 
-Mengapa `target_path` terpisah
-------------------------------
-Kedua DAG kini dapat menjalankan dbt bersamaan. Tanpa direktori target
-terpisah, `dbt test` dapat membaca `manifest.json` yang sedang ditulis
-proses lain. Artefak itu hanya metadata kompilasi — data di warehouse tetap
-aman karena `CREATE OR REPLACE` bersifat atomik.
+- ``target_path`` dipisah agar dua proses dbt tidak berebut ``manifest.json``.
 
-Mengapa `dbt deps` tetap dijalankan di sini
--------------------------------------------
-Paket dbt dipasang ke `/tmp` di dalam container, bukan ke `dbt_packages/` di
-dalam bind-mount `./dbt` — lihat `DBT_PACKAGES_INSTALL_PATH` di
-docker-compose.yml dan `packages-install-path` di dbt_project.yml.
+- ``dbt deps`` dijalankan di sini karena paket dipasang ke ``/tmp`` (lihat
+  ``DBT_PACKAGES_INSTALL_PATH`` di docker-compose.yml) yang terhapus saat
+  container di-recreate.
 
-Karena `/tmp` bersifat sementara (hilang saat container di-recreate), DAG ini
-memasang paketnya sendiri agar tidak bergantung pada apakah DAG batch sudah
-berjalan hari itu. Sebelumnya paket disimpan di dalam bind-mount, dan di sana
-berkasnya hilang berulang kali sehingga `dbt deps` justru berakhir dengan
-paket yang rusak.
+- Gate DQ terpisah dari DAG batch supaya karantina streaming tidak memblokir
+  mart trip.
 """
 from __future__ import annotations
 

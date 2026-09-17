@@ -1,28 +1,22 @@
 -- ============================================================
 -- assert_station_status_changes_single_create
 --
--- Gagalkan bila ada stasiun yang punya LEBIH DARI SATU event `op = 'c'`.
+-- Gagalkan bila ada stasiun dengan LEBIH DARI SATU event `op = 'c'`.
+-- Ini penjaga utama int_station_status_changes.
 --
--- Mengapa test ini penting
--- ------------------------
--- Ini penjaga utama model `int_station_status_changes`. Tanpa benih
--- (seed), `LAG()` tidak melihat keadaan sebelumnya pada baris pertama
--- setiap batch, sehingga baris itu diklasifikasikan sebagai "stasiun
--- baru" — dan setiap rotasi menghasilkan ~2.500 event `'c'` palsu yang
--- mengotori arsip perubahan.
+-- Kegagalan yang ditangkap:
 --
--- Kegagalan yang ditangkapnya secara konkret:
---   1. Benih hilang karena snapshot batas sudah terhapus retensi,
---      sehingga `SELECT MAX(valid_from) FROM {{ this }}` menunjuk ke
---      snapshot yang sudah tidak ada di `fct_station_status`.
---   2. Filter incremental salah, sehingga batch lama diproses ulang
---      dan menghasilkan perubahan "pertama" berulang.
---   3. `int_station_status_changes` pernah dibangun ulang dari nol
---      (mis. `--full-refresh`) sementara arsip lama belum dibersihkan.
+--   1. Benih kosong — snapshot batas sudah terhapus retensi, sehingga
+--      MAX(valid_from) menunjuk snapshot yang tidak ada di fct_station_status.
 --
--- Tanpa test ini, arsip bisa rusak tanpa satu pun tanda — dan karena
--- arsip inilah yang menyimpan riwayat jangka panjang, kerusakannya baru
--- terasa saat riwayat itu dibutuhkan.
+--   2. Filter incremental salah — batch lama diproses ulang sehingga
+--      menghasilkan perubahan "pertama" berulang.
+--
+--   3. Model dibangun ulang dari nol (--full-refresh) sementara arsip lama
+--      belum dibersihkan.
+--
+-- Arsip ini menyimpan riwayat jangka panjang, jadi kerusakannya baru terasa
+-- saat riwayat itu dibutuhkan. Karena itu test ini ada.
 --
 -- Hasil yang diharapkan: 0 baris.
 -- ============================================================

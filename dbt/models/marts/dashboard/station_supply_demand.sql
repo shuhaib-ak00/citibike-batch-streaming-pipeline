@@ -1,23 +1,14 @@
 -- ============================================================
--- station_supply_demand — mart dashboard (chart 7)
+-- station_supply_demand — mart dashboard (chart 7: supply vs demand)
 --
--- Chart: bar "supply vs demand per stasiun".
+-- Satu-satunya mart yang menggabungkan batch dan streaming: permintaan historis
+-- ("stasiun ini biasanya banyak ditinggalkan") dipertemukan dengan pasokan
+-- terkini ("sepedanya sekarang menipis"). Stasiun yang memenuhi keduanya adalah
+-- prioritas tertinggi untuk pengiriman sepeda.
 --
--- Ini satu-satunya mart yang menggabungkan **batch dan streaming** dalam
--- satu tampilan, dan intinya adalah mempertemukan dua hal yang tidak
--- bisa dijawab oleh salah satunya sendiri:
---
---   permintaan historis  -> "stasiun ini biasanya banyak ditinggalkan"
---   pasokan saat ini     -> "stasiun ini sekarang sepedanya menipis"
---
--- Stasiun yang memenuhi keduanya adalah prioritas tertinggi untuk
--- pengiriman sepeda. Itu jauh lebih berguna daripada melihat daftar
--- stasiun tersibuk atau daftar stasiun kosong secara terpisah.
---
--- Karena data batch berasal dari musim dingin sedangkan demo berlangsung
--- di periode lain, angka absolut antar keduanya tidak sebanding.
--- Pembacaan sebaiknya memakai `activity_rank`, `activity_share`, dan
--- `imbalance_pct` — bukan angka mentah.
+-- Catatan pengembangan: data batch berasal dari musim dingin sedangkan dashboard
+-- bisa menampilkan periode lain, jadi angka absolut tidak sebanding. Pakai
+-- `activity_rank`, `activity_share`, dan `imbalance_pct`, bukan angka mentah.
 --
 -- Grain: 1 baris per stasiun.
 -- ============================================================

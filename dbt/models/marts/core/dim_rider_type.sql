@@ -1,8 +1,8 @@
 -- ============================================================
 -- dim_rider_type — dimensi tipe pengguna
 --
--- Nilainya terbatas & stabil (member / casual), jadi dibangkitkan
--- langsung sebagai model statis — tidak perlu seed CSV terpisah.
+-- Nilainya terbatas & stabil (member / casual), jadi dibangkitkan langsung
+-- sebagai model statis — tidak perlu seed CSV terpisah.
 -- ============================================================
 
 WITH types AS (

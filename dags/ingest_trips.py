@@ -1,57 +1,23 @@
-"""DAG: ingest Citi Bike trip history (batch).
-
-Alur::
-
-    CSV bulanan  ->  di-split per hari  ->  Parquet di GCS
-                 ->  load per partisi harian ke BigQuery raw.trips
-
-Tahapan task::
+"""DAG: ingest trip history (CSV bulanan -> GCS -> BigQuery raw.trips).
 
     discover_source_files -> split_and_upload (1 task per file)
       -> collect_partitions -> load_partition (1 task per tanggal)
       -> verify_row_counts
 
-Karakteristik desain
---------------------
-1. **File bulanan dipecah jadi partisi harian di datalake.** Kunci partisi
-   adalah ``DATE(started_at)``, dipilih dari hasil profiling data awal.
+Catatan pengembangan:
 
-2. **Satu file bisa menyumbang banyak tanggal, dan satu tanggal bisa
-   menerima dari beberapa file.** Sumber Citi Bike dipotong per bulan
-   memakai *ended date*, sehingga trip yang mulai 28 Feb tapi selesai 1 Mar
-   berada di file Maret. Karena itu ``split_and_upload`` menulis Parquet per
-   tanggal, dan ``load_partition`` menggabungkan **seluruh** file pada
-   tanggal itu sebelum memuat — bukan per file, yang akan menghasilkan
-   partisi terpecah dan hitungan tidak konsisten.
+- Sumber dipotong per bulan memakai *ended date*, sehingga satu tanggal bisa
+  menerima kontribusi dari beberapa file. ``load_partition`` memuat SELURUH
+  isi GCS pada tanggal itu, bukan hanya hasil split run ini.
 
-3. **Idempoten (re-run aman).** ``load_partition`` menjalankan
-   *delete-partition lalu append* (lihat ``common/bq_utils.py``): baris pada
-   tanggal itu dihapus dulu, lalu data dari GCS dimuat ulang. Hasil akhir
-   selalu sama dengan isi datalake.
+- Idempoten lewat *delete-partition lalu append* (lihat ``common/bq_utils``).
+  JANGAN ganti ke partition decorator ``trips$YYYYMMDD``: decorator tidak
+  didukung untuk tabel ber-partisi kolom.
 
-   Catatan: **bukan** memakai partition decorator (``trips$YYYYMMDD``).
-   Decorator hanya berlaku untuk tabel ber-*ingestion-time partitioning*,
-   sedangkan tabel ini dipartisi berdasarkan **kolom** ``_ride_started_date``;
-   BigQuery menolaknya dengan "Table ... cannot include decorator".
+- ``verify_row_counts`` memancarkan Dataset ``RAW_TRIPS``; itu yang memicu
+  ``citibike_transform_batch``.
 
-4. **Format Parquet** dipakai agar tipe kolom terjaga saat berpindah dari
-   datalake ke warehouse (``started_at`` tetap TIMESTAMP, koordinat tetap
-   FLOAT64) dan ukuran berkas lebih kecil dibanding CSV.
-
-5. **Pemisahan datalake dan warehouse tetap terjaga.** Data mentah disimpan
-   di GCS sebagai Parquet; BigQuery hanya menyimpan salinan siap-query.
-   Re-run tidak meng-upload ulang ke GCS karena blok yang sudah ada dipakai.
-
-6. **Alert kegagalan pipeline** lewat ``on_failure_callback``, dan
-   **verifikasi integritas** membandingkan isi datalake (GCS) dengan data
-   warehouse (BigQuery) per partisi — kalau meleset, pipeline gagal sehingga
-   alert terpicu. Jumlah baris datalake dibaca dari custom metadata objek
-   Parquet, jadi tidak ada berkas besar yang diunduh saat verifikasi.
-
-7. **Memicu DAG transformasi secara otomatis.** ``verify_row_counts``
-   memancarkan Dataset ``RAW_TRIPS``, sehingga ``citibike_transform_batch``
-   berjalan begitu data raw benar-benar siap (data-aware scheduling),
-   bukan berdasarkan jam yang ditebak.
+- Filter berkas lewat param ``file_pattern``/``limit_files`` untuk uji cepat.
 """
 from __future__ import annotations
 

@@ -1,53 +1,23 @@
-"""DAG: watchdog kegagalan pipeline (ringkasan per DAG-run).
+"""DAG: ringkasan kegagalan per DAG-run.
 
-**Masalah yang diselesaikan.** Alert per task sudah memadai untuk kegagalan
-tunggal: pesannya spesifik, memuat tautan log, dan punya kunci dedup
-sendiri. Yang tidak ia tangani adalah **kegagalan sistemik** — misalnya
-seluruh task `load_partition` gagal bersamaan. Diduplikasi pun, Slack tetap
-menerima puluhan pesan karena kunci dedup-nya berbeda per task.
+Alert per task (``default_args.on_failure_callback``) memadai untuk kegagalan
+tunggal, tetapi tidak untuk kegagalan sistemik: kunci dedup-nya berbeda per
+task, sehingga Slack menerima puluhan pesan sekaligus.
 
-**Kenapa bukan ``on_failure_callback`` tingkat DAG.** Itu solusi yang jelas
-dan sempat dipakai, tetapi terbukti tidak bisa diandalkan di Airflow 2.9.3.
-``DAG.fetch_callback`` membangun konteks dari SATU task instance sembarang::
+Catatan pengembangan — JANGAN kembali ke ``on_failure_callback`` tingkat DAG.
+Terbukti tidak dapat diandalkan di Airflow 2.9.3: ``DAG.fetch_callback``
+membangun konteks dari ``tis[-1]``, dan untuk DAG ber-*dynamic task mapping*
+pemanggilan itu melempar ``NotFullyPopulated`` sehingga callback tidak pernah
+terkirim — justru pada DAG yang paling rawan gagal sistemik. Dua cacat lain
+pendekatan itu: isi ``failed_tasks`` bisa kosong (task masih berstatus
+``up_for_retry``, bukan ``failed``), dan callback diproses ulang setiap siklus
+parsing DAG.
 
-    ti = tis[-1]  # get first TaskInstance of DagRun
-    context = ti.get_template_context(session=session)
+DAG ini membaca metadata Airflow langsung, sehingga baru melapor setelah
+DAG-run benar-benar berstatus ``failed``.
 
-Untuk DAG yang memakai **dynamic task mapping** — dan `citibike_ingest_trips`
-memakainya di dua tempat, karena jumlah partisi baru diketahui saat run —
-pemanggilan itu melempar::
-
-    airflow.models.expandinput.NotFullyPopulated:
-        Failed to populate all mapping metadata; missing: 'fname'
-
-Akibatnya callback tidak pernah terkirim, dan kegagalannya hanya muncul
-sebagai ``ERROR - Error executing DagCallbackRequest callback`` di log DAG
-processor. Ini persis jenis kegagalan senyap yang ingin dicegah: alert yang
-tampak terpasang, tetapi tidak pernah berbunyi. Kejadian ini terverifikasi
-pada run `uji_gagal_alert_1` tanggal 2026-09-13.
-
-Dua cacat lain dari pendekatan callback, yang sama-sama hilang dengan
-polling:
-
-- Ringkasannya bisa keliru. Saat callback dipanggil, task yang gagal masih
-  berstatus ``up_for_retry``, bukan ``failed`` — sehingga pesan pernah
-  terkirim dengan isi `failed_tasks: []`, yang justru membingungkan.
-- Callback diproses ulang setiap siklus parsing DAG (teramati 6 kali untuk
-  satu run), sehingga pesan bisa terkirim berkali-kali.
-
-**Pendekatan yang dipakai di sini** membaca metadata Airflow langsung.
-Dengan begitu ia tidak bergantung pada bentuk konteks apa pun, dan baru
-melapor setelah DAG-run benar-benar berstatus gagal — sehingga daftar task
-yang dilaporkan sudah final, bukan status sementara.
-
-Catatan jujur tentang batas kemampuannya
-----------------------------------------
-Mekanisme apa pun yang berjalan **di dalam** Airflow tidak bisa melaporkan
-bahwa Airflow sendiri yang mati. Bila scheduler berhenti, polling ini ikut
-berhenti dan tidak ada alert yang dikirim. Untuk itu diperlukan pemantauan
-dari luar (mis. healthcheck.io atau uptime monitor) — di luar cakupan
-proyek ini, tetapi perlu disadari agar keheningan tidak disalahartikan
-sebagai "semua sehat".
+Batas: mekanisme di dalam Airflow tidak bisa melaporkan Airflow sendiri yang
+mati. Perlu pemantauan eksternal; keheningan bukan berarti sehat.
 """
 from __future__ import annotations
 

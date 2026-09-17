@@ -1,23 +1,22 @@
 -- ============================================================
--- Uji singular: tidak ada lagi station_id "phantom"
+-- assert_no_phantom_station_ids
 --
--- Phantom = dua station_id berbeda yang menunjuk stasiun fisik yang
--- SAMA (nama identik + koordinat identik). Kasus nyata:
+-- Phantom = dua station_id berbeda yang menunjuk stasiun fisik yang SAMA
+-- (nama identik + koordinat identik). Kasus nyata:
 --
 --     5343.1   Allen St & Hester St   lat=40.71606 lng=-73.99191
 --     5343.10  Allen St & Hester St   lat=40.71606 lng=-73.99191
 --
--- Sebelum perbaikan: 65 pasangan seperti ini membuat satu stasiun
--- tampil sebagai dua baris di dashboard dan mencampur analisis
--- net_flow (5343.1 net -4.645 dan 5343.10 net +4.536 terlihat
+-- 65 pasangan seperti ini membuat satu stasiun tampil sebagai dua baris di
+-- dashboard dan mencampur analisis net_flow (-4.645 dan +4.536 terlihat
 -- "seimbang" padahal gabungannya tidak).
 --
--- Uji gagal bila query mengembalikan baris (ada kelompok dengan >1 id).
---
--- CATATAN: stasiun yang memang terpisah secara fisik TIDAK terpengaruh
--- karena koordinatnya berbeda, mis.:
+-- Stasiun yang memang terpisah secara fisik TIDAK terpengaruh karena
+-- koordinatnya berbeda, mis.:
 --     7625.18 vs 7625.22  (E 118 St & Park Ave)
 --     8381.04 vs 8421.03  (W 181 St & Riverside Dr)
+--
+-- Gagal bila query mengembalikan baris (ada kelompok dengan >1 id).
 -- ============================================================
 
 SELECT

@@ -1,14 +1,11 @@
 -- ============================================================
--- Retention & pemeliharaan tabel karantina/DLQ
+-- Retention tabel karantina / DLQ (jalur manual)
 --
--- Dijadwalkan sebagai DAG (citibike_retention_cleanup, mingguan),
--- atau dijalankan manual dari sini.
+-- Jalur utama adalah DAG citibike_retention_cleanup (mingguan). Skrip ini
+-- disimpan untuk keperluan insiden, saat pembersihan perlu dijalankan tanpa
+-- menunggu jadwal.
 --
--- Retention window default: 30 hari.
---
--- Catatan: DAG `citibike_retention_cleanup` adalah jalur utama dan sudah
--- mencakup DLQ. Skrip ini disimpan sebagai jalur manual untuk keperluan
--- insiden, saat pembersihan perlu dijalankan tanpa menunggu jadwal.
+-- Retention default: 30 hari.
 -- ============================================================
 
 -- Hapus DLQ lebih tua dari 30 hari

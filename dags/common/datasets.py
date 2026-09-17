@@ -21,7 +21,9 @@ from common.config import (
 # Dihasilkan oleh DAG ingestion batch (citibike_ingest_trips)
 RAW_TRIPS = Dataset(f"bigquery://{PROJECT_ID}/{DATASET_RAW}/trips")
 
-# Akan dihasilkan oleh consumer streaming pada Fase E
+# Tersedia bila nanti perlu memicu DAG dari sisi streaming. Saat ini belum
+# dipakai: consumer tidak memancarkan dataset, dan rantai streaming dijadwalkan
+# per jam lewat citibike_transform_streaming.
 RAW_STATION_STATUS = Dataset(f"bigquery://{PROJECT_ID}/{DATASET_RAW}/station_status")
 
 # Ditulis oleh model dbt staging trip (dipakai bila perlu memicu DAG

@@ -1,97 +1,32 @@
 -- ============================================================
--- int_station_status_changes — daftar PERUBAHAN nyata per stasiun
+-- int_station_status_changes — arsip PERUBAHAN per stasiun (snapshot-diff CDC)
 --
--- Berbeda dari `fct_station_status` yang menyimpan SELURUH snapshot,
--- model ini hanya menyimpan baris yang benar-benar berubah. Inilah
--- implementasi **snapshot-diff CDC**: perubahan disimpulkan dengan
--- membandingkan dua keadaan berurutan, bukan dibaca dari log perubahan.
+-- Hanya baris yang benar-benar berubah yang disimpan, berbeda dari
+-- fct_station_status yang menyimpan seluruh snapshot.
 --
--- Mengapa snapshot-diff (dan bukan log-based seperti Debezium)
--- ------------------------------------------------------------
--- Sumbernya GBFS REST API yang hanya mengembalikan keadaan penuh, tanpa
--- WAL, tanpa trigger, dan tanpa kolom `updated_at` per catatan. Jadi
--- log-based CDC memang tidak mungkin di sini — snapshot-diff adalah
--- satu-satunya keluarga CDC yang tersedia.
+-- Catatan pengembangan:
 --
--- Yang penting: resolusi waktunya tidak kalah. Karena sumbernya di-poll
--- tiap ~90 detik, semua keluarga CDC hanya bisa mencatat tingkat
--- perubahan yang sama.
+-- - Kunci diff WAJIB `gbfs_station_id`, BUKAN `station_key`. Di
+--   fct_station_status, `station_key` NULL untuk ~10% baris (stasiun tanpa
+--   riwayat trip), dan `PARTITION BY` kolom ber-NULL menaruh semua NULL dalam
+--   SATU partisi -- LAG() lalu membandingkan stasiun yang berbeda.
 --
--- Mengapa incremental
--- -------------------
--- Tujuannya menjadi **arsip jangka panjang**, sehingga harus tetap utuh
--- walau retensi `raw.station_status` dan `fct_station_status` dipangkas.
--- Sebelumnya keduanya menyimpan seluruh riwayat, sehingga tidak ada satu
--- pun model yang menyediakan daftar perubahan.
+-- - Wajib ada BENIH dari snapshot di batas pemrosesan terakhir. `LAG()` hanya
+--   melihat baris di dataset input, jadi tanpa benih baris pertama tiap batch
+--   dianggap "stasiun baru" (~2.500 event op='c' palsu per rotasi). Benih
+--   diambil per-snapshot, bukan per-stasiun, agar stasiun yang belum pernah
+--   berubah tetap tercakup.
 --
--- Strategi penulisan: insert_overwrite + copy_partitions
--- -----------------------------------------------------
--- Setiap perubahan adalah peristiwa yang tidak pernah berubah, jadi
--- seharusnya hanya ditambahkan.
+-- - `insert_overwrite` + `copy_partitions=True`. Adapter BigQuery hanya
+--   menerima 'merge' dan 'insert_overwrite'; `merge` memindai ~130 MiB per run
+--   (~94 GB/bulan) hanya untuk menuliskan 0 baris. Tanpa `copy_partitions`,
+--   insert_overwrite MENGGANTI seluruh partisi yang tersentuh.
 --
--- Adapter BigQuery **hanya** menerima `merge` dan `insert_overwrite`
--- (terverifikasi dari pesan errornya: "Expected one of: 'merge',
--- 'insert_overwrite'"). Tidak ada strategi `append` seperti di adapter
--- lain, sehingga penghematan tidak bisa didapat dengan cara itu.
+-- - Idempotensi bergantung pada filter `snapshot_timestamp > batas`, bukan
+--   kunci unik. Duplikat ditangkap test unique_combination_of_columns.
 --
--- `merge` ditolak karena mahal: terverifikasi di log saat pengujian, tanpa
--- opsi tambahan dbt menjalankan `MERGE (0.0 rows, 130.2 MiB processed)`.
--- Dengan DAG streaming tiap jam, itu ~130 MiB x 720 run ≈ 94 GB kuota
--- query per bulan — hanya untuk menuliskan 0 baris baru.
---
--- `copy_partitions=True` adalah bagian yang **wajib**: tanpa itu,
--- insert_overwrite MENGGANTI seluruh partisi yang tersentuh, sehingga
--- perubahan lain di tanggal yang sama akan terhapus. Dinyalakan, dbt
--- menyalin dulu partisi tujuan yang tumpang tindih sebelum menuliskan
--- yang baru.
---
--- Terverifikasi: dua kali run berturut-turut menghasilkan 60.807 baris
--- (idempoten, tidak ada yang hilang).
---
--- Idempotensinya bergantung pada filter `snapshot_timestamp > batas`,
--- bukan pada kunci unik. Bila filter itu salah, baris akan terduplikasi —
--- dan duplikatnya DITANGKAP oleh test `unique_combination_of_columns`
--- pada (gbfs_station_id, valid_from), bukan dibiarkan senyap.
---
--- Benih (seed): mengapa diperlukan
--- --------------------------------
--- `LAG()` hanya melihat baris yang ada di dalam dataset input. Tanpa
--- benih, baris pertama tiap batch tidak punya pendahulu sehingga
--- dianggap "stasiun baru" — dan setiap rotasi menghasilkan ~2.500 event
--- `op='c'` palsu.
---
--- Benihnya diambil dari **satu snapshot di batas pemrosesan terakhir**,
--- bukan dari baris terakhir per stasiun di tabel ini. Alasannya:
--- seeding per-stasiun akan melewatkan stasiun yang belum pernah berubah
--- (belum punya baris sama sekali), sehingga perubahan pertamanya akan
--- tercatat sebagai `op='c'` padahal stasiunnya sudah lama ada.
---
--- Konsekuensi yang perlu disadari: benih ini membaca `fct_station_status`.
--- Bila snapshot di batas itu sudah terhapus retensi, benih menjadi kosong
--- dan muncul `op='c'` palsu. Itulah yang diperiksa oleh test
--- `assert_station_status_changes_single_create`.
---
--- Mengapa `gbfs_station_id`, bukan `station_key`
--- ---------------------------------------------
--- Kunci diff **wajib** `gbfs_station_id`, karena di `fct_station_status`
--- kolom `station_key` bernilai NULL untuk 82.531 baris (9,9%) — yaitu
--- stasiun yang ada di feed GBFS tetapi tidak punya riwayat trip sehingga
--- tidak masuk `dim_station` (`is_unknown_station = TRUE`).
---
--- Akibatnya sangat serius bila kunci itu dipakai: seluruh 82.531 baris
--- itu masuk ke SATU partisi `LAG()`, sehingga perubahan antar **stasiun
--- yang berbeda** tercampur dan nilai `delta_bikes` sepenuhnya salah.
--- Terverifikasi saat pengujian: 82.183 dari 139.582 baris (59%) rusak
--- karena sebab ini.
---
--- `gbfs_station_id` tidak pernah NULL (terverifikasi: 0 baris) dan
--- berjumlah 2.450 nilai unik — sesuai jumlah stasiun nyata di feed.
--- Ini juga menegaskan peran `dim_station` sebagai jembatan antar ruang id:
--- `station_key` adalah kunci untuk bergabung ke dimensi, sedangkan
--- `gbfs_station_id` adalah identitas stasiun itu sendiri.
---
--- Nilai `station_key` tetap disertakan di keluaran (boleh NULL) agar
--- hasilnya dapat langsung di-join ke `dim_station` bila diperlukan.
+-- - Test `assert_station_status_changes_single_create` menangkap benih kosong,
+--   mis. bila snapshot batas sudah terhapus retensi.
 --
 -- Grain: 1 baris per PERUBAHAN per stasiun.
 -- ============================================================

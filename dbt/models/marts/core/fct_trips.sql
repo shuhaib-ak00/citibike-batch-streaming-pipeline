@@ -2,10 +2,10 @@
 -- fct_trips — fact table trip (transaction fact)
 --
 -- Grain: 1 baris per trip.
--- Partition: harian pada trip_date — memangkas bytes scanned saat
---   dashboard memfilter rentang tanggal.
--- Cluster: start_station_id + member_casual — kolom yang paling
---   sering dipakai untuk filter/agregasi di dashboard.
+--
+-- Partition harian pada `trip_date` untuk memangkas bytes scanned saat
+-- dashboard memfilter rentang tanggal. Cluster `start_station_id` +
+-- `member_casual` karena keduanya paling sering dipakai untuk filter/agregasi.
 -- ============================================================
 
 {{ config(

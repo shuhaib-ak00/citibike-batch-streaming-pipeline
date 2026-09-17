@@ -1,19 +1,23 @@
 -- ============================================================
 -- DDL Raw Layer — BigQuery
 --
--- Dijalankan oleh `infra/bigquery/setup.sh` dengan substitusi
--- variabel dari `.env` (GCP_PROJECT_ID, BQ_DATASET_RAW).
+-- Dijalankan oleh infra/bigquery/setup.sh dengan substitusi variabel dari .env
+-- (GCP_PROJECT_ID, BQ_DATASET_RAW).
 --
--- Desain:
---   - Semua tabel fact di-PARTITION, dan di-CLUSTER by kolom
---     yang paling sering dipakai filter/join.
---   - Partisi memakai kolom metadata DATE eksplisit (bukan
---     DATE(started_at)) agar pengelolaan per partisi bisa tepat sasaran.
---     Idempotensi load dicapai lewat pola delete-partition lalu append
---     (lihat dags/common/bq_utils.py), bukan partition decorator —
---     decorator tidak didukung untuk tabel ber-partisi kolom.
---   - Skema raw sengaja permisif (boleh NULL) karena validasi
---     bisnis terjadi di layer staging dbt.
+-- Catatan pengembangan:
+--
+-- - Semua tabel fact di-PARTITION dan di-CLUSTER by kolom yang paling sering
+--   dipakai filter/join.
+--
+-- - Partisi memakai kolom metadata DATE eksplisit, bukan DATE(started_at), agar
+--   pengelolaan per partisi bisa tepat sasaran.
+--
+-- - Idempotensi load lewat delete-partition lalu append
+--   (dags/common/bq_utils.py), BUKAN partition decorator: decorator tidak
+--   didukung untuk tabel ber-partisi kolom.
+--
+-- - Skema raw sengaja permisif (boleh NULL) karena validasi bisnis terjadi di
+--   layer staging dbt.
 -- ============================================================
 
 -- ------------------------------------------------------------

@@ -1,9 +1,8 @@
 -- ============================================================
--- member_vs_casual_behavior — mart dashboard #4
--- Chart: bar/donut "member vs casual".
+-- member_vs_casual_behavior — mart dashboard (chart 4: member vs casual)
 --
--- Membandingkan profil dua segmen pengguna: volume, durasi,
--- jarak, jenis sepeda, dan pola waktu (weekday vs weekend).
+-- Membandingkan profil dua segmen pengguna: volume, durasi, jarak, jenis sepeda,
+-- dan pola waktu (weekday vs weekend).
 --
 -- Grain: 1 baris per rider_type.
 -- ============================================================

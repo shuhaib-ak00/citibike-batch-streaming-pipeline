@@ -1,33 +1,30 @@
 """DAG: transformasi dbt (staging -> intermediate -> marts).
 
-Penjadwalan
------------
-DAG ini **tidak memakai jam**. Ia memakai Airflow Dataset: terpicu otomatis
-begitu DAG ingestion (``citibike_ingest_trips``) selesai dan memancarkan
-``RAW_TRIPS``. Dengan begitu transformasi tidak pernah berjalan di atas data
-yang belum siap, tanpa perlu menebak jeda waktu.
+Tidak memakai jam. Terpicu Dataset ``RAW_TRIPS`` yang dipancarkan
+``citibike_ingest_trips``, sehingga transformasi tidak pernah berjalan di atas
+data yang belum siap.
 
-Alur
-----
-::
+    dbt deps                pasang paket (dbt_utils)
+    dbt run tag:staging     stg_* + pemetaan id stasiun
+    check_quarantine_surge  gate: hentikan bila karantina trip melonjak
+    dbt run sisanya         dims, intermediate, marts core & dashboard
+    dbt test                unique / not_null / relationships / expression
+    dbt docs generate       artefak dokumentasi
+    record_dq_metrics       catat metrik ke dq_metrics
 
-    dbt deps                -> pasang paket (dbt_utils)
-    dbt run  tag:staging    -> stg_* termasuk pemetaan id stasiun
-    GATE kualitas data      -> hentikan bila proporsi karantina melonjak
-    dbt run  sisanya        -> dims, intermediate, marts core & dashboard
-    dbt test                -> unique / not_null / relationships / expression
-    dbt docs generate       -> artefak dokumentasi
+Catatan pengembangan:
 
-Catatan desain: gate DQ sengaja diletakkan **sebelum** model lain dibangun,
-sehingga data yang mencurigakan tidak pernah "terbit" ke dashboard. Ambang
-karantina didefinisikan oleh ``QUARANTINE_THRESHOLD_PCT`` di bawah.
+- Gate DQ diletakkan SEBELUM model lain dibangun agar data mencurigakan tidak
+  pernah terbit ke dashboard. Gate ini hanya memeriksa sumber trip; karantina
+  streaming diperiksa DAG ``citibike_transform_streaming``.
 
-Model setelah staging dijalankan dalam SATU perintah, bukan per tag.
-Sebab grafik ketergantungannya tidak mengikuti urutan layer secara ketat:
-``int_station_risk_calculation`` (intermediate) membutuhkan ``dim_station``
-(core) untuk memperoleh kapasitas stasiun. Menjalankan per tag akan gagal
-pada build dari nol karena dimensi belum ada saat layer intermediate
-dieksekusi. Dengan satu perintah, dbt yang mengurutkan sendiri.
+- Model setelah staging dijalankan dalam SATU perintah, bukan per tag. Grafik
+  ketergantungan tidak mengikuti urutan layer: ``int_station_risk_calculation``
+  (intermediate) membutuhkan ``dim_station`` (core). Menjalankan per tag gagal
+  pada build dari nol karena dimensi belum ada.
+
+- DAG ini WAJIB aktif. DAG berjadwal Dataset yang ter-pause tidak terpicu dan
+  kegagalannya sunyi, tanpa error apa pun.
 """
 from __future__ import annotations
 

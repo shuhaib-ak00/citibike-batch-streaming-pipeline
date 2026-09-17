@@ -1,32 +1,24 @@
 """Throttle pengiriman alert agar tidak menabrak batas Slack.
 
-Masalah yang diselesaikan
--------------------------
-Slack Incoming Webhook membatasi sekitar **1 pesan per detik** per webhook.
-Pipeline ini punya beberapa task yang berjalan paralel (mis. 91 task
-`load_partition` pada ingestion). Bila kegagalannya sistemik — kredensial
-GCP dicabut, jaringan mati — puluhan task akan gagal hampir bersamaan dan
-mengirim alert masing-masing. Sebagian besar akan dibuang diam-diam oleh
-Slack, sehingga jumlah alert yang terlihat jauh lebih sedikit daripada
-jumlah kegagalan sebenarnya.
+Slack Incoming Webhook membatasi ~1 pesan/detik. Saat kegagalan sistemik,
+puluhan task gagal hampir bersamaan (mis. 91 task ``load_partition``); Slack
+membuang kelebihannya diam-diam, sehingga alert yang terlihat jauh lebih
+sedikit daripada jumlah kegagalan sebenarnya.
 
-Pendekatan
-----------
-Dua lapis, dan keduanya diperlukan:
+Tiga pembatas, dipanggil berurutan dari ``alert_utils._send_webhook``:
 
-1. **Deduplikasi berjendela** (`should_send`). Alert dengan kunci sama
-   (mis. dag+task yang sama) tidak dikirim lebih dari sekali dalam rentang
-   `ALERT_DEDUP_WINDOW_SECONDS`. Ini menahan badai alert dari task identik
-   yang di-retry berulang.
+    should_send       dedup per kunci (ALERT_DEDUP_WINDOW_SECONDS)
+    rate_limit_ok     jeda minimum antar pengiriman ke webhook
+    burst_guard_ok    batas jumlah alert kegagalan task per jendela
 
-2. **Pembatas laju** (`rate_limit_ok`). Minimal ada jeda
-   `ALERT_MIN_INTERVAL_SECONDS` antar pengiriman ke webhook, apa pun
-   kuncinya. Ini menjaga batas keras Slack.
+``burst_guard_ok`` hanya berlaku untuk alert per task; ringkasan DAG-run dan
+peringatan watchdog dilewatkan karena justru keduanya sumber informasi utama
+saat badai alert terjadi.
 
-Keduanya disimpan di **database Airflow**, bukan di memori proses. Alasannya
-penting: task Airflow berjalan di proses terpisah (scheduler, worker), jadi
-state di memori tidak akan terlihat antar task. Menyimpan di database membuat
-throttle benar-benar berlaku lintas task.
+State disimpan di database Airflow (Variable), bukan memori proses -- task
+berjalan di proses terpisah sehingga state di memori tidak terlihat antar
+task. DEDUP sebaiknya >= WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES, kalau tidak
+satu DAG-run gagal yang sama dilaporkan berulang.
 """
 from __future__ import annotations
 

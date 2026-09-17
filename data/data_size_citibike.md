@@ -1,6 +1,6 @@
 # Ukuran & Profil Dataset Citi Bike (Jan–Mar 2026)
 
-> Di-generate otomatis oleh `notebooks/01_eda_trip_history.ipynb` — Fase A EDA.
+> Di-generate otomatis oleh `notebooks/01_eda_trip_history.ipynb`.
 
 ## Ringkasan
 

@@ -1,19 +1,21 @@
 -- ============================================================
 -- station_risk_monitoring — mart dashboard (chart 6: tabel risiko)
 --
--- Daftar stasiun yang perlu perhatian tim ops SAAT INI, diurutkan dari
--- yang paling mendesak. Intinya adalah **kandidat rebalancing**.
+-- Daftar stasiun yang perlu perhatian tim ops SAAT INI, diurutkan dari yang
+-- paling mendesak — kandidat rebalancing.
 --
--- Sumbernya snapshot terakhir. Bila memakai riwayat, tabel ini akan
--- memuat ribuan baris per stasiun dan tidak lagi menjawab pertanyaan
--- "stasiun mana yang perlu ditangani sekarang?".
+-- Sumbernya snapshot terakhir. Bila memakai riwayat, tabel ini akan memuat
+-- ribuan baris per stasiun dan tidak lagi menjawab "stasiun mana yang perlu
+-- ditangani sekarang?".
 --
--- Yang disertakan hanya stasiun yang benar-benar beroperasi:
---   * is_operational = TRUE  -> stasiun non-operasional bukan masalah
---     rebalancing, melainkan masalah inventaris; menyertakannya akan
---     memenuhi tabel dengan baris yang tidak bisa ditindaklanjuti.
---   * is_stale = FALSE       -> angka lama tidak bisa dipercaya sebagai
---     kondisi terkini, jadi tidak boleh jadi dasar keputusan.
+-- Hanya stasiun yang benar-benar beroperasi yang disertakan:
+--
+--   is_operational = TRUE -> stasiun non-operasional bukan masalah rebalancing
+--     melainkan masalah inventaris; menyertakannya memenuhi tabel dengan baris
+--     yang tidak bisa ditindaklanjuti.
+--
+--   is_stale = FALSE -> angka lama tidak bisa dipercaya sebagai kondisi
+--     terkini, jadi tidak boleh jadi dasar keputusan.
 --
 -- Grain: 1 baris per stasiun berisiko.
 -- ============================================================

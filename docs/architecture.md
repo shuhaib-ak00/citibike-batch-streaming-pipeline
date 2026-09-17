@@ -86,7 +86,7 @@ flowchart TD
 > Nama bucket GCS tidak perlu prefiks ini karena nama bucket bersifat
 > unik global — mustahil bertabrakan.
 
-> Materialisasi mengikuti strategi biaya brief §12: staging/intermediate/
+> Materialisasi mengikuti strategi penekanan biaya: staging/intermediate/
 > dashboard sebagai **view**, marts/core sebagai **table**.
 
 ---
@@ -165,7 +165,7 @@ erDiagram
 
 **Catatan penting:** karena `fct_station_status` adalah periodic snapshot,
 agregasi (occupancy per jam, durasi risk) dilakukan dengan `GROUP BY`
-time-bucket, bukan validity window (brief §7).
+time-bucket, bukan validity window.
 
 ---
 
@@ -196,12 +196,12 @@ sequenceDiagram
    sama, sehingga urutan per stasiun konsisten.
 2. **Tanpa diff/state store** → seluruh snapshot direkam apa adanya
    (periodic snapshot). Trade-off: volume ~2,2 juta baris/hari, tapi
-   jauh lebih sederhana daripada CDC (brief §13).
+   jauh lebih sederhana daripada CDC.
 3. **Setiap baris punya `snapshot_timestamp`** sebagai penanda waktu polling.
 
 ---
 
-## 5. Strategi Data Quality (brief §8)
+## 5. Strategi Data Quality
 
 ```mermaid
 flowchart TD
@@ -218,7 +218,8 @@ flowchart TD
 ```
 
 Prinsip: **never silently drop data** — semua yang gagal tetap bisa diaudit.
-Lihat brief §8.0 untuk tiga pola penanganan dan retention 30 hari.
+Tiga pola penanganan beserta retensinya ada di
+[`sql/bigquery/02_cleanup_rejected.sql`](../sql/bigquery/02_cleanup_rejected.sql).
 
 ### 5.1 Normalisasi station_id (konsistensi lintas era data)
 
@@ -256,7 +257,7 @@ dari artefak ±4.500 menjadi sinyal nyata +727 / −460.
 
 ---
 
-## 6. Mekanisme Alert (brief §11)
+## 6. Mekanisme Alert
 
 ### 6.1 Ringkasan sumber alert
 

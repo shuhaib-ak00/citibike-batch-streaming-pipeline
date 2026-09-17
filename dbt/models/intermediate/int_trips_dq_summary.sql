@@ -1,12 +1,11 @@
 -- ============================================================
 -- int_trips_dq_summary — metrik kualitas data trip
 --
--- Menyediakan angka yang dipakai untuk:
---   1. Audit: berapa baris valid, berapa dikarantina, berapa duplikat.
---   2. Memicu alert lonjakan karantina bila proporsinya melewati ambang.
+-- Dipakai untuk audit (berapa valid, berapa dikarantina, berapa duplikat) dan
+-- sebagai dasar alert lonjakan karantina.
 --
--- Grain: 1 baris per kombinasi (source_file, rejection_reason).
--- Baris dengan rejection_reason NULL merepresentasikan baris VALID.
+-- Grain: 1 baris per (source_file, rejection_reason).
+-- rejection_reason NULL = baris VALID.
 -- ============================================================
 
 WITH source AS (

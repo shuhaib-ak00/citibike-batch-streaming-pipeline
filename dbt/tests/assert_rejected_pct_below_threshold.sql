@@ -1,12 +1,11 @@
 -- ============================================================
--- Uji singular: lonjakan volume karantina
+-- assert_rejected_pct_below_threshold
 --
--- Aturan: bila proporsi baris yang masuk karantina melewati
--- threshold (default 5%) untuk sebuah file sumber, itu sinyal
--- masalah SISTEMIK (skema sumber berubah / bug upstream), bukan
--- sekadar noise — sehingga pipeline harus gagal dan alert terpicu.
+-- Bila proporsi baris karantina melewati threshold (default 5%) untuk sebuah
+-- file sumber, itu sinyal masalah SISTEMIK (skema sumber berubah / bug
+-- upstream), bukan noise — pipeline harus gagal agar alert terpicu.
 --
--- Uji singular gagal bila query mengembalikan baris.
+-- Gagal bila query mengembalikan baris.
 -- ============================================================
 
 WITH per_file AS (

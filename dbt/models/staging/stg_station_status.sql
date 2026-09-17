@@ -1,28 +1,25 @@
 -- ============================================================
 -- stg_station_status — staging status stasiun (streaming)
 --
--- Peran: cleaning + penyelarasan tipe. Grain tetap 1:1 dengan raw, yaitu
--- 1 baris per stasiun per snapshot polling.
+-- Cleaning + penyelarasan tipe. Grain tetap 1:1 dengan raw: 1 baris per
+-- stasiun per snapshot polling.
 --
--- Yang dilakukan:
---   1. Normalisasi tipe: flag 0/1 GBFS menjadi BOOLEAN, string dipangkas.
---   2. Saring baris VALID saja (aturan DQ dari macro
---      station_status_rejection_flags).
+--   1. Normalisasi tipe: flag 0/1 GBFS -> BOOLEAN, string dipangkas.
+--   2. Saring baris VALID saja (macro station_status_rejection_flags).
 --   3. Dedup berdasarkan (station_id, last_reported).
 --
--- Kenapa dedup memakai kunci itu, bukan ride/snapshot saja:
--- Kafka bersifat at-least-once, sehingga pesan yang sama bisa terkirim
--- lebih dari sekali. Nilai `last_reported` hanya berubah ketika operator
--- memperbarui status stasiun, jadi kombinasi (station_id, last_reported)
--- menandai satu **observasi** yang unik. Bila polling berikutnya masih
--- membawa last_reported yang sama, itu memang observasi yang sama —
--- bukan data baru yang boleh dihitung dua kali.
+-- Catatan pengembangan:
 --
--- Baris yang gagal DQ tidak dibuang: lihat stg_station_status_rejected.
+-- - Dedup memakai (station_id, last_reported), bukan snapshot saja. Kafka
+--   bersifat at-least-once sehingga pesan bisa terkirim ulang; `last_reported`
+--   hanya berubah saat operator memperbarui status, jadi kombinasi itu
+--   menandai satu observasi unik.
 --
--- Catatan: tabel raw bersifat APPEND-ONLY (consumer menulis terus-menerus),
--- sehingga dedup di sini berperan penting untuk menjaga grain. Berbeda dari
--- tabel trips yang dimuat ulang per partisi, tabel ini tidak pernah dihapus.
+-- - Tabel raw bersifat APPEND-ONLY (consumer menulis terus-menerus, tidak
+--   pernah dihapus), sehingga dedup di sini yang menjaga grain. Berbeda dari
+--   tabel trips yang dimuat ulang per partisi.
+--
+-- Baris gagal DQ tidak dibuang — lihat stg_station_status_rejected.
 -- ============================================================
 
 WITH source AS (

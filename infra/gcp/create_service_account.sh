@@ -2,17 +2,14 @@
 # ============================================================
 # Buat service account untuk pipeline + unduh kunci JSON.
 #
-# Kenapa script ini ada: menghindari langkah manual di GCP Console
-# dan membuat setup bisa direproduksi ulang.
+# Menghindari langkah manual di GCP Console agar setup bisa direproduksi.
 #
 # Prasyarat:
 #   - gcloud CLI terpasang & sudah `gcloud auth login`
-#   - Akun kamu punya role Owner/Editor di project
+#   - Akun punya role Owner/Editor di project
 #
-# Jalankan:
-#   bash infra/gcp/create_service_account.sh
-#
-# Output: secrets/service-account.json (di-ignore git)
+# Jalankan: bash infra/gcp/create_service_account.sh
+# Output  : secrets/service-account.json (di-ignore git)
 # ============================================================
 set -euo pipefail
 

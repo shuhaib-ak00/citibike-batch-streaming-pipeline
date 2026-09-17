@@ -1,22 +1,20 @@
 """Producer: poll GBFS station_status -> topik Kafka.
 
-Setiap polling menghasilkan **snapshot penuh** seluruh stasiun, dan seluruh
-isinya direkam — ini periodic snapshot, bukan CDC. Pendekatan ini dipilih
-karena jauh lebih sederhana: tidak perlu menyimpan state per stasiun untuk
-menghitung selisih, dan konsumen selalu menerima gambaran lengkap.
+Setiap polling mem-publish snapshot PENUH seluruh stasiun (periodic snapshot,
+bukan CDC), sehingga tidak perlu menyimpan state per stasiun.
 
-Dua keputusan yang perlu diperhatikan:
+Catatan pengembangan:
 
-1. **Pesan dipartisi dengan key = station_id.** Semua pesan untuk satu stasiun
-   selalu masuk partisi yang sama, sehingga urutannya konsisten. Urutan antar
-   stasiun tetap tidak dijamin, dan memang tidak dibutuhkan.
+- Pesan dipartisi dengan key ``station_id``; semua pesan satu stasiun masuk
+  partisi yang sama sehingga urutannya konsisten. Urutan antar stasiun tidak
+  dijamin dan tidak dibutuhkan.
 
-2. **Payload yang gagal validasi dikirim ke topik DLQ**, bukan dibuang —
-   baik kegagalan di tingkat envelope maupun per stasiun. Satu stasiun rusak
-   tidak menggagalkan seluruh snapshot.
+- Payload yang gagal validasi dikirim ke topik DLQ, bukan dibuang -- baik
+  kegagalan tingkat envelope maupun per stasiun. Satu stasiun rusak tidak
+  menggagalkan seluruh snapshot.
 
-Kegagalan HTTP **tidak** masuk DLQ: itu masalah konektivitas, bukan masalah
-data. Producer cukup mencoba lagi pada siklus berikutnya.
+- Kegagalan HTTP TIDAK masuk DLQ: itu masalah konektivitas, bukan data.
+  Producer cukup mencoba lagi pada siklus berikutnya.
 """
 from __future__ import annotations
 

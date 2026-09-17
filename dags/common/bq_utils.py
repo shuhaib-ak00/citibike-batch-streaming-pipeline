@@ -1,23 +1,17 @@
-"""Utilitas BigQuery untuk DAG (raw layer load + verifikasi).
+"""Utilitas BigQuery untuk raw layer (load + verifikasi).
 
-Prinsip desain
---------------
-Tabel raw dipartisi berdasarkan **kolom** (``_ride_started_date`` /
-``_snapshot_date``), bukan ingestion-time partitioning. Konsekuensinya:
+Semua tabel raw dipartisi berdasarkan KOLOM (``_ride_started_date`` /
+``_snapshot_date``), bukan ingestion-time partitioning. Karena itu partition
+decorator (``table$YYYYMMDD``) TIDAK didukung — BigQuery menolaknya dengan
+"Table ... cannot include decorator".
 
-    Partition decorator (``table$YYYYMMDD``) TIDAK didukung untuk tabel
-    ber-partisi kolom — BigQuery menolaknya dengan pesan
-    "Table ... cannot include decorator".
+Idempotensi dicapai dengan *delete-then-append*:
 
-Karena itu idempotensi dicapai dengan pola **delete-then-append**:
+    1. DELETE baris pada satu nilai partisi (partisi di-prune, murah)
+    2. Load Parquet dari GCS dengan ``WRITE_APPEND``
 
-    1. Hapus baris pada satu nilai partisi (partisi di-prune -> hanya
-       partisi itu yang dipindai, murah).
-    2. Load file Parquet dari GCS dengan ``WRITE_APPEND``.
-
-Re-run menjadi idempoten: hasil akhir selalu sama dengan isi GCS.
-Penghitungan baris per partisi memakai filter ``WHERE kolom_partisi``,
-bukan decorator.
+Hitungan baris per partisi memakai filter ``WHERE kolom_partisi``, bukan
+decorator.
 """
 from __future__ import annotations
 

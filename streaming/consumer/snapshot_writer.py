@@ -1,24 +1,21 @@
 """Consumer: topik snapshot -> Parquet di GCS -> BigQuery.
 
-Dua keputusan desain yang membedakannya dari pipeline batch
-------------------------------------------------------------
+Catatan pengembangan:
 
-1. **Append-only, bukan delete-partition.** Pipeline batch menerapkan
-   *hapus partisi lalu append* karena setiap tanggal dimuat ulang menyeluruh.
-   Di streaming itu justru berbahaya: consumer menulis terus-menerus, sehingga
-   menghapus partisi tanggal ini akan menghapus data yang baru saja ditulis
-   pada hari yang sama.
+- Append-only, BUKAN delete-partition. Consumer menulis terus-menerus, jadi
+  menghapus partisi hari ini akan menghapus data yang baru saja ditulis pada
+  hari yang sama. Duplikat karena itu mungkin tersimpan dan itu diterima --
+  Kafka bersifat at-least-once; duplikat dirapikan di staging dbt.
 
-   Konsekuensinya duplikat mungkin tersimpan, dan itu **diterima**: Kafka
-   bersifat *at-least-once*. Duplikat dirapikan di layer staging dbt dengan
-   kunci `(station_id, last_reported)`.
+- Offset di-commit SETELAH data benar-benar tersimpan. Kalau consumer mati di
+  tengah, pesan dibaca ulang, bukan hilang.
 
-2. **Offset di-commit setelah data benar-benar tersimpan.** Kalau consumer
-   mati di tengah, pesan akan dibaca ulang — bukan hilang. Mengulang aman
-   karena duplikat ditangani di hulu seperti poin 1.
+- Flush berbasis IDLE (bukan timer periodik). Dengan timer periodik, pesan
+  pertama setelah masa sepi langsung memicu flush sendirian, sehingga muncul
+  berkas Parquet berisi 1 baris dan snapshot berikutnya pecah.
 
-Penulisan dilakukan **massal per batch** (bukan per pesan) karena satu load job
-BigQuery per pesan akan sangat mahal dan lambat.
+- Penulisan massal per batch, bukan per pesan: satu load job BigQuery per pesan
+  akan sangat lambat dan mahal.
 """
 from __future__ import annotations
 

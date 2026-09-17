@@ -1,16 +1,18 @@
 -- ============================================================
 -- dim_date — dimensi tanggal (date spine)
 --
--- Dimensi **bersama** untuk kedua fact table:
---   * fct_trips           (batch)     -> rentang Des 2025 - Mar 2026
---   * fct_station_status  (streaming) -> rentang hari berjalan
+-- Dimensi bersama untuk kedua fact table:
+--   fct_trips           (batch)     -> rentang Des 2025 - Mar 2026
+--   fct_station_status  (streaming) -> rentang hari berjalan
 --
--- Karena itu rentangnya diambil dari GABUNGAN kedua sumber, bukan hanya
--- dari trip. Kalau hanya memakai trip, fact streaming akan punya tanggal
--- di luar dimensi sehingga foreign key-nya gagal.
+-- Rentangnya diambil dari GABUNGAN kedua sumber. Bila hanya dari trip, fact
+-- streaming akan punya tanggal di luar dimensi sehingga foreign key-nya gagal.
+-- Tidak ada tanggal kosong dalam rentang karena array tanggal dibangkitkan
+-- berurutan.
 --
--- Tidak ada tanggal kosong di dalam rentang, dan tidak ada entri di luar
--- rentang, karena array tanggalnya dibangkitkan secara berurutan.
+-- Model ini dibangun DAG BATCH (harian), sedangkan rantai streaming berjalan
+-- tiap jam. Karena itu batas atasnya diberi buffer ke depan — lihat komentar
+-- pada GREATEST di bawah.
 -- ============================================================
 
 WITH bounds AS (

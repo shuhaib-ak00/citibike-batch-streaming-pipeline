@@ -1,17 +1,20 @@
 -- ============================================================
--- stg_station_status_rejected — tabel karantina station_status
+-- stg_station_status_rejected — karantina station_status
 --
--- Menyimpan baris status stasiun yang gagal validasi, lengkap dengan alasan
--- penolakan dan waktu karantina, supaya bisa diaudit.
+-- Baris status stasiun yang gagal validasi, lengkap dengan alasan penolakan dan
+-- waktu karantina, agar bisa diaudit.
 --
--- Dibangun dari SUMBER RAW YANG SAMA dengan stg_station_status dan memakai
--- macro station_status_rejection_flags() yang sama, sehingga definisi valid
--- di kedua model dijamin identik.
+-- Dibangun dari sumber RAW yang sama dan memakai macro
+-- ``station_status_rejection_flags()`` yang sama dengan stg_station_status,
+-- sehingga definisi valid di kedua model dijamin identik.
 --
--- Catatan kasus nyata: feed GBFS mengirim `last_reported` bernilai epoch
--- 86400 (1970-01-02) untuk stasiun yang tidak melaporkan status. Nilai itu
--- bukan waktu nyata, sehingga harus dikarantina agar tidak merusak
--- perhitungan umur data dan analisis risiko.
+-- Kasus nyata yang ditangani: feed GBFS mengirim ``last_reported`` bernilai
+-- epoch 86400 (1970-01-02) untuk stasiun yang tidak melaporkan status. Nilai itu
+-- bukan waktu nyata, sehingga harus dikarantina agar tidak merusak perhitungan
+-- umur data dan analisis risiko.
+--
+-- Sama seperti stg_trips_rejected: JANGAN ubah menjadi tabel (lihat catatan di
+-- berkas itu).
 -- ============================================================
 
 WITH source AS (

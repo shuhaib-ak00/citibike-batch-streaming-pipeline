@@ -43,6 +43,17 @@ metabase-data/
 kafka-data/
 zookeeper-data/
 
+# ===== Catatan internal (tidak untuk repo) =====
+# Berkas brief tugas, catatan persiapan presentasi, dan panduan demo hanya
+# relevan secara lokal. Dokumentasi teknis yang tetap di-commit ada di
+# docs/architecture.md, docs/erd.md, dan docs/runbook.md.
+Project_Brief_CitiBike_Pipeline.md
+Guideline*.md
+docs/qna.md
+docs/demo-script.md
+docs/slide-outline.md
+docs/screenshots/README.md
+
 # ===== IDE / OS =====
 .vscode/
 .idea/

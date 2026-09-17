@@ -1,43 +1,28 @@
-"""DAG: retention & pembersihan tabel operasional.
+"""DAG: retention tabel operasional.
 
-**Kenapa perlu.** Tabel `station_status` bersifat append-only — consumer
-menulis terus-menerus dan tidak ada yang menghapus. Dengan ±2.500 stasiun
-per snapshot dan interval 90 detik, volumenya bertambah sekitar **240 MB
-per hari**. Tanpa pembersihan, storage akan menembus kuota gratis dan
-query "kondisi terkini" makin mahal karena partisi harian makin besar.
+    measure_before -> [cleanup_streaming, cleanup_dlq, cleanup_rejected]
+      -> measure_after
 
-Tabel yang dibersihkan, beserta alasan masa simpannya
------------------------------------------------------
-| Tabel | Retensi | Alasan |
-|---|---|---|
-| `station_status` | 14 hari | Mart dashboard hanya memakai snapshot terakhir; analisis tren cukup hitungan hari |
-| `station_status_dlq` | 30 hari | Cukup lama untuk memeriksa pola bila terjadi lonjakan payload rusak |
+Tabel ``station_status`` bersifat append-only dan bertambah ~240 MB/hari,
+sehingga tanpa pembersihan query "kondisi terkini" makin mahal.
 
-**Catatan: tabel karantina justru TIDAK dibersihkan di sini.**
-`stg_trips_rejected` dan `stg_station_status_rejected` bermaterialisasi
-**view**, sehingga tidak menyimpan data sendiri — isinya selalu dihitung
-ulang dari tabel raw. Masa hidupnya otomatis mengikuti raw, jadi retensi
-terhadapnya tidak punya arti. Dua alasan mengapa view adalah pilihan yang
-benar, bukan kekurangan:
+| Tabel | Retensi |
+|---|---|
+| ``station_status`` | 14 hari |
+| ``station_status_dlq`` | 30 hari |
 
-1. `check_quarantine_surge` menghitung **rasio** baris ditolak per
-   eksekusi dbt. Untuk itu ia butuh isi karantina yang selalu mencerminkan
-   data raw saat ini, bukan akumulasi historis. Bila tabelnya
-   diakumulasi, rasio akan terhitung salah — pembilangnya ikut memuat
-   baris yang sudah lama ditolak.
-2. `quarantined_at` diisi `CURRENT_TIMESTAMP()`. Pada view, nilai itu
-   diartikan "kapan baris ini dinilai ditolak pada eksekusi terakhir",
-   dan itu memang pertanyaan yang ingin dijawab. Bila dijadikan tabel
-   biasa, seluruh tabel dibangun ulang tiap run sehingga semua baris tetap
-   bertanggal "sekarang" — retensi berdasarkan kolom itu tetap tidak akan
-   pernah menghapus apa pun.
+Tabel karantina dbt (``stg_*_rejected``) TIDAK dibersihkan di sini karena
+keduanya bermaterialisasi view sehingga tidak menyimpan data sendiri.
+JANGAN ubah keduanya menjadi tabel: ``check_quarantine_surge`` menghitung
+rasio baris ditolak per eksekusi dbt, dan akumulasi historis membuat rasio itu
+salah. Selain itu ``quarantined_at`` diisi ``CURRENT_TIMESTAMP()``, yang pada
+tabel biasa akan selalu bertanggal "sekarang" sehingga retensinya tidak akan
+pernah menghapus apa pun.
 
-Verifikasi retensi terhadap tabel yang benar-benar menyimpan data
-(station_status dan DLQ) dilakukan lewat pengukuran sebelum/sesudah, agar
-efeknya terbukti dan bukan sekadar diasumsikan.
+Pengukuran sebelum/sesudah ada agar efek pembersihan terbukti, bukan
+diasumsikan.
 
-Jadwal mingguan dipilih karena volume tumbuh lambat relatif terhadap
-ambang retensi — menjalankan harian hanya menambah beban tanpa manfaat.
+Jadwal mingguan cukup: volume tumbuh lambat relatif terhadap ambang retensi.
 """
 from __future__ import annotations
 

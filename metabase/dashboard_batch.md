@@ -1,7 +1,8 @@
 # Dashboard Batch (Metabase) — 4 Chart v1
 
-Resep langkah demi langkah untuk chart **batch** (brief §10 nomor 1–4).
-Chart streaming (5–7) dibahas terpisah pada Fase E.
+Resep langkah demi langkah untuk chart **batch** (chart 1–4).
+Chart streaming (5–7) dibahas terpisah di
+[`dashboard_streaming.md`](dashboard_streaming.md).
 
 **Sumber data:** dataset `shuhaib_citibike_dashboard` (hasil dbt).
 Semua mart adalah **view**, jadi chart selalu menampilkan data terbaru
@@ -115,7 +116,7 @@ LIMIT 10
   (banyak orang mengembalikan sepeda) → kandidat **penarikan** sepeda
 
 Tampilkan `net_flow` sebagai kolom tambahan di tabel — ini jembatan ke
-chart 6 (risk monitoring) di Fase E.
+chart 6 (risk monitoring) di dashboard streaming.
 
 ### Kandidat rebalancing (net_flow ekstrem)
 
@@ -150,7 +151,7 @@ LIMIT 5
 net_flow ekstrem **belum tentu** stasiun tersibuk (mis. Eastern Pkwy &
 Kingston Ave hanya rank #525). Artinya ketidakseimbangan **tidak bisa**
 ditebak dari popularitas saja — inilah alasan tim ops butuh metrik net_flow
-yang dihitung otomatis, sesuai problem statement brief §1.
+yang dihitung otomatis.
 
 > **Catatan perbaikan data:** sebelum normalisasi `station_id`, nilai
 > net_flow ekstrem mencapai ±4.500 karena satu stasiun tercatat sebagai dua
@@ -281,7 +282,7 @@ Value = `total_trips`.
 
 > Dua puncak — sore (16–18) dan pagi (08) — adalah pola **commuter**
 > klasik: berangkat kerja pagi, pulang sore. Ini bukti kuantitatif untuk
-> problem statement di brief §1.
+> problem statement proyek ini.
 
 ---
 
@@ -349,8 +350,8 @@ terhadap stasiun kosong saat jam sibuk, casual lebih sensitif saat akhir pekan.
 Chart 1–4 bersumber **batch** → auto-refresh cepat tidak diperlukan
 (data hanya berubah setelah `dbt run`). Set **auto-refresh: off** atau 1 jam.
 
-Auto-refresh 1 menit disiapkan untuk dashboard **streaming** (Fase E),
-sesuai target lag <5 menit di brief §5.
+Auto-refresh 1 menit disiapkan untuk dashboard **streaming**, agar perubahan
+datanya terlihat saat dashboard dibuka.
 
 ---
 

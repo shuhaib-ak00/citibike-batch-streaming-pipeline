@@ -1,16 +1,15 @@
 # ============================================================
-# Image Airflow + tool transformasi (dbt) + provider GCP.
+# Image Airflow + dbt + provider GCP.
 #
-# Build context = ROOT repo (lihat docker-compose.yml), sehingga
-# requirements.txt bisa di-copy dari docker/airflow/.
+# Build context = ROOT repo (lihat docker-compose.yml).
 #
-# Instalasi memakai file constraints RESMI Airflow supaya seluruh
-# dependency (Airflow + provider + dbt) koheren. Ini menghindari
-# konflik versi protobuf/grpcio/jsonschema yang umum terjadi.
+# Memakai file constraints RESMI Airflow supaya seluruh dependency
+# (Airflow + provider + dbt) koheren, menghindari konflik versi
+# protobuf/grpcio/jsonschema.
 #
-# NOTE migrasi DockerOperator: file requirements sengaja dipisah.
-# Image dbt mandiri nanti cukup FROM image ini (tanpa dbt) lalu
-# install requirements.txt yang SAMA — tidak ada duplikasi versi.
+# Catatan migrasi DockerOperator: requirements sengaja dipisah. Image dbt
+# mandiri nanti cukup FROM image ini lalu install requirements.txt yang sama,
+# sehingga tidak ada duplikasi versi.
 # ============================================================
 
 ARG AIRFLOW_VERSION=2.9.3

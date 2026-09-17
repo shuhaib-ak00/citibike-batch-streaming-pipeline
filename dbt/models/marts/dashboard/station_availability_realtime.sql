@@ -1,20 +1,18 @@
 -- ============================================================
 -- station_availability_realtime — mart dashboard (chart 5: peta)
 --
--- Menyimpan HANYA snapshot terakhir, bukan seluruh riwayat.
+-- Hanya snapshot terakhir, bukan seluruh riwayat.
 --
--- Kenapa dimaterialisasi sebagai table, padahal mayoritas mart lain view:
--- chart ini di-auto-refresh tiap menit agar terlihat "hidup". Kalau berupa
--- view, setiap refresh akan memindai partisi hari ini (±240 MB) dan
--- 1.440 refresh/hari akan menghabiskan kuota query gratis 1 TiB/bulan
--- dalam ±3 hari. Sebagai table berisi ±2.500 baris (±250 KB), biaya
--- pemindaiannya turun sekitar seribu kali, sehingga auto-refresh aman
--- dinyalakan terus.
+-- Materialized table, bukan view, karena chart ini di-auto-refresh tiap menit.
+-- Sebagai view, setiap refresh akan memindai partisi hari ini (~240 MB) dan
+-- 1.440 refresh/hari menghabiskan kuota query 1 TiB/bulan dalam ~3 hari.
+-- Sebagai table ~2.500 baris (~250 KB), biaya pemindaiannya turun ~1000x
+-- sehingga auto-refresh aman dinyalakan terus.
+--
+-- Kolom risk_* dipakai mewarnai peta supaya tim ops bisa melihat sebaran
+-- stasiun bermasalah tanpa membuka tabel lain.
 --
 -- Grain: 1 baris per stasiun (kondisi terkini).
---
--- Kolom risk_* dipakai untuk mewarnai peta di dashboard, sehingga tim ops
--- bisa melihat sebaran stasiun bermasalah tanpa membuka tabel lain.
 -- ============================================================
 
 {{ config(materialized='table', tags=['marts', 'dashboard']) }}

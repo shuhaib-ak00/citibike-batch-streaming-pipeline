@@ -1,35 +1,28 @@
 -- ============================================================
 -- int_station_risk_calculation — occupancy & klasifikasi risiko
 --
--- Menghubungkan status stasiun dengan dimensi stasiun untuk memperoleh
--- `capacity`, lalu menghitung tingkat hunian (occupancy) dan
--- mengklasifikasikan stasiun sebagai empty / low / balanced / high / full.
+-- Menghubungkan status stasiun dengan dim_station untuk memperoleh `capacity`,
+-- lalu menghitung occupancy dan mengklasifikasikan stasiun.
 --
--- Kenapa model ini menyentuh dim_station (layer core):
--- pemetaan id GBFS -> id legacy dimiliki oleh dim_station lewat kolom
--- `gbfs_station_id`. Menyalin pemetaan itu ke layer intermediate akan
--- menciptakan dua sumber kebenaran yang bisa menyimpang. Dimensi di sini
--- diperlakukan sebagai **data referensi bersama**, bukan sebagai keluaran
--- akhir yang tidak boleh dibaca ke hulu.
+-- Catatan pengembangan:
 --
--- Tiga penanda yang dihasilkan, dan alasannya masing-masing:
+-- - Model ini membaca dim_station (layer core) karena pemetaan id GBFS -> id
+--   legacy hanya ada di sana lewat `gbfs_station_id`. JANGAN salin pemetaan itu
+--   ke intermediate — akan menjadi dua sumber kebenaran yang bisa menyimpang.
+--   Konsekuensinya urutan layer tidak bisa dijalankan per tag.
 --
---   is_operational     stasiun yang tidak beroperasi tidak boleh ikut
---                      perhitungan risiko. Terbukti dari data: 57 stasiun
---                      rutin melaporkan bikes=0 & docks=0 dengan
---                      is_renting=false. Tanpa penanda ini, mereka akan
---                      muncul sebagai "empty paling parah" dan mendominasi
---                      daftar rebalancing — sinyal palsu yang menyesatkan.
+-- - `is_operational` wajib ada. Terbukti dari data: 57 stasiun rutin
+--   melaporkan bikes=0 & docks=0 dengan is_renting=false. Tanpa penanda ini
+--   mereka muncul sebagai "empty paling parah" dan mendominasi daftar
+--   rebalancing — sinyal palsu.
 --
---   is_stale           `last_reported` lebih tua dari ambang. Menandai data
---                      yang tidak layak disebut "real-time".
+-- - `is_stale` menandai `last_reported` yang lebih tua dari ambang.
 --
---   is_unknown_station stasiun ada di feed tetapi tidak ada di dimensi,
---                      sehingga tidak punya kapasitas maupun padanan id
---                      legacy. Tetap disimpan agar bisa diaudit.
+-- - `is_unknown_station` menandai stasiun yang ada di feed tetapi tidak ada di
+--   dimensi. Tetap disimpan agar bisa diaudit.
 --
--- Ambang klasifikasi berasal dari var (lihat dbt_project.yml) dan
--- dikalibrasi dari distribusi data nyata: p25=21%, p50=48%, p75=74%.
+-- Ambang klasifikasi dari var (lihat dbt_project.yml), dikalibrasi dari
+-- distribusi nyata: p25=21%, p50=48%, p75=74%.
 -- ============================================================
 
 WITH status AS (

@@ -1,20 +1,18 @@
 -- ============================================================
 -- Retention data streaming
 --
--- Tabel `station_status` bersifat APPEND-ONLY: consumer menulis
--- terus-menerus dan tidak ada yang menghapus. Dengan ±2.500 stasiun per
--- snapshot dan interval 90 detik, tabel ini bertambah sekitar
--- **240 MB per hari** — cukup untuk menghabiskan kuota storage gratis
--- 10 GiB dalam hitungan minggu, dan membuat query "kondisi terkini"
--- makin mahal karena partisi hariannya makin besar.
+-- Tabel `station_status` bersifat APPEND-ONLY (~240 MB/hari), cukup untuk
+-- menghabiskan kuota storage 10 GiB dan membuat query "kondisi terkini" makin
+-- mahal seiring partisi harian membesar.
 --
--- Data yang dihapus di sini sudah tidak punya nilai analitis: mart
--- dashboard hanya memakai snapshot terakhir, sedangkan analisis tren
--- membutuhkan hitungan hari, bukan bulan.
+-- Data yang dihapus tidak lagi punya nilai analitis: mart dashboard hanya
+-- memakai snapshot terakhir, sedangkan analisis tren butuh hitungan hari.
 --
--- ⚠️ Penghapusan memakai DML DELETE yang memindai kolom partisi, sehingga
--- hanya partisi lama yang dibaca. Jangan menjalankan query ini tanpa
--- filter tanggal — pemindaian seluruh tabel akan mahal.
+-- Jalur utama adalah DAG citibike_retention_cleanup; skrip ini untuk eksekusi
+-- manual.
+--
+-- ⚠️ DELETE ini memindai kolom partisi sehingga hanya partisi lama yang dibaca.
+-- Jangan menjalankan tanpa filter tanggal — pemindaian seluruh tabel akan mahal.
 -- ============================================================
 
 -- Simpan 14 hari terakhir data status stasiun.

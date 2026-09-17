@@ -1,21 +1,20 @@
 -- ============================================================
--- int_stations_deduplicated — daftar stasiun unik & bersih
+-- int_stations_deduplicated — daftar stasiun unik
 --
--- Dimensi stasiun dibangun dari titik awal DAN akhir trip, lalu
--- di-dedup menjadi satu baris per station_id.
+-- Dimensi stasiun dibangun dari titik awal DAN akhir trip, lalu di-dedup
+-- menjadi satu baris per station_id.
 --
--- Keputusan desain (temuan Fase A):
---   * id-tanpa-suffix sudah dinormalisasi di stg_trips, jadi '5303.06'
---     dan '5303.06_' tidak lagi menjadi dua stasiun berbeda.
---   * station_id sudah dipetakan ke bentuk KANONIK di stg_trips (lewat
---     stg_station_id_mapping), sehingga 65 stasiun yang tercatat dengan
---     dua id (mis. 5343.1 & 5343.10 dengan nama+koordinat identik)
---     sudah menjadi satu id di sini. Tidak ada penggabungan tambahan
---     yang perlu dilakukan di layer ini.
---   * Nama stasiun bisa berubah antar waktu -> diambil nama TERBARU
---     yang tidak null (ARRAY_AGG IGNORE NULLS ORDER BY ... LIMIT 1).
---   * Koordinat diambil dari kemunculan terbaru yang tidak null,
---     sehingga trip dengan GPS gagal tetap punya titik di peta.
+-- Catatan pengembangan:
+--
+-- - Tidak ada penggabungan id tambahan di sini. Normalisasi suffix '_' dan
+--   pemetaan ke id kanonik sudah dilakukan di stg_trips, lewat
+--   stg_station_id_mapping.
+--
+-- - Nama stasiun bisa berubah antar waktu -> diambil nama TERBARU yang tidak
+--   null (ARRAY_AGG IGNORE NULLS ORDER BY ... LIMIT 1).
+--
+-- - Koordinat diambil dari kemunculan terbaru yang tidak null, sehingga trip
+--   dengan GPS gagal tetap punya titik di peta.
 -- ============================================================
 
 WITH stations_from_trips AS (

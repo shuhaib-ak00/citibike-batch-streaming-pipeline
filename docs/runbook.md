@@ -14,9 +14,9 @@ Setiap langkah **idempoten** — aman diulang.
 | Google Cloud SDK | terbaru | `gcloud --version` |
 | Python (untuk util lokal) | 3.11+ | `python --version` |
 
-Akun GCP harus aktif dengan **billing enabled** dan $300 free credit
-(brief §12). Pasang budget alert di Billing Console (mis. Rp180.000 &
-Rp900.000) sebelum melanjutkan.
+Akun GCP harus aktif dengan **billing enabled** dan $300 free credit.
+Pasang budget alert di Billing Console (mis. Rp180.000 & Rp900.000) sebelum
+melanjutkan.
 
 ---
 
@@ -79,7 +79,7 @@ bash infra/bigquery/setup.sh
 ```
 
 Membuat dataset `${BQ_DATASET_RAW}` (mis. `shuhaib_citibike_raw`) dan 5 tabel
-(partition + cluster sesuai strategi biaya brief §12).
+(partition + cluster).
 Dataset dbt dibuat otomatis saat `dbt run`.
 
 ### Verifikasi cepat
@@ -191,7 +191,7 @@ docker compose --profile streaming start streaming-consumer
 
 ---
 
-## 5. Menjalankan pipeline streaming (Fase E)
+## 5. Menjalankan pipeline streaming
 
 ```bash
 docker compose --profile streaming up -d --build
@@ -218,7 +218,7 @@ docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
 
 ## 6. Menjalankan dbt
 
-### Dari host (disarankan saat development — brief §12)
+### Dari host (disarankan saat development)
 
 ```bash
 cd dbt
@@ -244,7 +244,7 @@ dbt test  --select tag:staging
 
 ### Dari Airflow
 
-Jalankan DAG `citibike_transform_batch` dari UI (Fase C). Untuk menjalankan
+Jalankan DAG `citibike_transform_batch` dari UI. Untuk menjalankan
 lengkap lewat CLI:
 
 ```bash
@@ -318,7 +318,7 @@ LIMIT 10;
 > sepenuhnya artefak — semuanya berawal pada timestamp yang sama, yaitu
 > titik streaming berhenti.
 
-### Retention data operasional (brief §8.0)
+### Retention data operasional
 
 Dijalankan otomatis oleh DAG `citibike_retention_cleanup` (Minggu 03:00).
 Tidak perlu langkah manual; jalankan ini bila perlu memicu lebih cepat:
@@ -387,19 +387,11 @@ pada percobaan kedua log akan memuat `ditahan (dedup ...)`.
 
 ---
 
-## 9. Urutan fase pengerjaan
+## 9. Status verifikasi
 
-- [x] Fase A — EDA & profiling (`notebooks/01_eda_trip_history.ipynb`)
-- [x] Fase B — skeleton infra (docker-compose, DDL BigQuery, script setup GCP)
-- [x] Fase C — pipeline batch (DAG ingestion → dbt → marts), terverifikasi end-to-end
-- [x] Fase D — dashboard batch (Metabase)
-- [x] Fase E — pipeline streaming (GBFS → Kafka → BigQuery), terverifikasi end-to-end
-- [x] Fase F — alert kegagalan pipeline (watchdog streaming, watchdog pipeline, retention)
-- [ ] **Fase G — dokumentasi, ERD, slide, QnA** ← anda di sini
+`dbt test` **119/119 lulus** (PASS=119, WARN=0, ERROR=0). Rekonsiliasi
+`raw = valid + rejected` dan `fct_trips = valid` keduanya seimbang. Streaming
+berjalan dengan Kafka lag 0, dan watchdog melaporkan keempat pemeriksaan sehat.
 
-> **Status Fase C–F (terverifikasi).** `dbt test` **112/112 lulus** (PASS=112,
-> WARN=0, ERROR=0); rekonsiliasi `raw = valid + rejected` dan
-> `fct_trips = valid` keduanya seimbang. Streaming berjalan dengan
-> `station_status` melewati 400 ribu baris, Kafka lag 0. Watchdog streaming
-> melaporkan keempat pemeriksaan sehat, dan watchdog pipeline terbukti
-> melaporkan DAG-run gagal beserta daftar task-nya.
+Watchdog pipeline juga terbukti melaporkan DAG-run gagal beserta daftar
+task-nya.

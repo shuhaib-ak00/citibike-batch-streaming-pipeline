@@ -1,35 +1,30 @@
 -- ============================================================
--- int_station_status_windows — rentang waktu antar perubahan
+-- int_station_status_windows — validity window antar perubahan
 --
--- Menambahkan `valid_to` dan durasinya pada setiap perubahan dari
--- `int_station_status_changes`, sehingga terbentuk validity window:
+-- Menambahkan `valid_to` dan durasinya pada tiap perubahan dari
+-- int_station_status_changes:
 --
 --     [valid_from ──────────────── valid_to)
---      keadaan ini bertahan selama itu
 --
--- Pertanyaan yang jadi terjawab
--- -----------------------------
--- Inilah alasan model ini ada. Dengan periodic snapshot murni,
--- pertanyaan berikut sulit dijawab karena setiap snapshot hanya
--- menunjukkan keadaan sesaat:
+-- Inilah yang menjawab "berapa lama sebuah stasiun bertahan dalam kondisi
+-- tertentu" — pertanyaan yang tidak bisa dijawab periodic snapshot murni,
+-- karena stasiun yang kosong 3 jam dan yang baru saja kosong tampak sama.
 --
---     "Stasiun mana yang SUDAH LAMA kosong?"
---     "Berapa lama sebuah stasiun bertahan dalam kondisi penuh?"
---     "Stasiun mana yang paling sering berubah?"
+-- Catatan pengembangan:
 --
--- Sebelumnya, stasiun yang kosong 3 jam dan yang baru saja kosong
--- tampak sama di dashboard. Padahal bagi tim ops keduanya jauh berbeda.
+-- - View, bukan tabel: isinya sepenuhnya turunan sumbernya tanpa perhitungan
+--   mahal, sehingga tidak perlu dijadwalkan sendiri.
 --
--- Mengapa view, bukan tabel
--- -------------------------
--- Isinya sepenuhnya turunan dari `int_station_status_changes`, tanpa
--- perhitungan tambahan yang mahal. Sebagai view, ia selalu konsisten
--- dengan sumbernya dan tidak perlu dijadwalkan sendiri.
+-- - `valid_to` NULL berarti keadaan itu MASIH berlangsung.
 --
--- `valid_to` NULL berarti keadaan itu MASIH berlangsung — belum ada
--- perubahan berikutnya.
+-- - `is_possible_gap` WAJIB disaring sebelum memakai `duration_minutes`.
+--   Interval yang jauh lebih panjang dari siklus polling (~90 detik)
+--   kemungkinan besar menandakan data tidak terkumpul (streaming mati), bukan
+--   stasiun yang benar-benar diam. Tanpa saringan itu hasilnya didominasi
+--   artefak.
 --
 -- Grain: 1 baris per perubahan per stasiun (= grain sumbernya).
+-- ============================================================
 -- ============================================================
 
 {{ config(materialized='view') }}

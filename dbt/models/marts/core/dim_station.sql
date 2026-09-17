@@ -1,26 +1,22 @@
 -- ============================================================
 -- dim_station — dimensi stasiun
 --
--- Tabel ini adalah **jembatan antara dua ruang ID yang berbeda**:
+-- Jembatan antara dua ruang ID yang berbeda:
 --
 --   riwayat trip (CSV)       : id legacy -> '5343.10', 'JC116', 'HB602'
---   GBFS station_information : id baru   -> UUID '3bfc859b-...' atau
---                                           angka '1839334257267825432'
+--   GBFS station_information : UUID / snowflake -> '3bfc859b-...'
 --
--- Keduanya TIDAK saling mengenal: join langsung atas station_id
--- menghasilkan 0 baris cocok. Penghubungnya adalah kolom ``short_name``
--- pada GBFS, yang justru berisi id legacy tersebut.
--- Terverifikasi: 2.247 dari 2.285 id trip (98,3%) cocok lewat short_name,
--- dan short_name unik (2.506 baris, 2.506 nilai berbeda).
+-- Keduanya TIDAK saling mengenal: join langsung atas station_id menghasilkan
+-- 0 baris cocok. Penghubungnya kolom `short_name` pada GBFS, yang justru berisi
+-- id legacy tersebut (2.247 dari 2.285 id trip / 98,3% cocok).
 --
 -- Karena itu dimensi ini menyimpan DUA kolom id:
---   * ``station_id``      -> id legacy, dipakai fct_trips
---   * ``gbfs_station_id`` -> id GBFS, dipakai fct_station_status
--- Dengan begitu kedua fact table dapat dihubungkan lewat dimensi ini.
+--   station_id       -> id legacy, dipakai fct_trips
+--   gbfs_station_id  -> id GBFS, dipakai fct_station_status
 --
 -- 38 stasiun tidak ditemukan di GBFS (kemungkinan sudah dibongkar, atau
--- stasiun operasional seperti SYS/HB). Stasiun itu dibiarkan ber-capacity
--- NULL dan ditandai lewat ``has_capacity_info`` / ``is_missing_from_gbfs``.
+-- stasiun operasional seperti SYS/HB). Capacity-nya dibiarkan NULL dan
+-- ditandai lewat `has_capacity_info` / `is_missing_from_gbfs`.
 -- ============================================================
 
 WITH stations AS (

@@ -1,20 +1,14 @@
 """Validasi schema payload GBFS.
 
-Tujuan: menangkap payload rusak atau berubah bentuk SEBELUM masuk pipeline,
-supaya masalah skema sumber tidak menyebar ke layer berikutnya.
-
 Validasi dipisah dua tingkat supaya satu stasiun rusak tidak menggagalkan
 seluruh snapshot:
 
-  1. **Envelope** (``GBFSEnvelope`` / ``StationInformationEnvelope``) —
-     struktur terluar GBFS. Kalau ini gagal, seluruh respons tidak bisa
-     dipercaya sehingga dikirim ke Dead Letter Queue.
-  2. **Per-stasiun** (``StationStatus`` / ``StationInformation``) — satu baris
-     rusak dikarantina (dihitung lalu dikirim ke DLQ) sementara stasiun lain
-     tetap diproses.
+  1. Envelope (``GBFSEnvelope`` / ``StationInformationEnvelope``) -- struktur
+     terluar GBFS. Kalau gagal, seluruh respons tidak dipercaya -> DLQ.
+  2. Per-stasiun (``StationStatus`` / ``StationInformation``) -- satu baris
+     rusak dikarantina, stasiun lain tetap diproses.
 
-Payload yang gagal tidak dibuang: prinsipnya data apa pun yang gagal tetap
-bisa diaudit.
+Payload yang gagal tidak dibuang, agar tetap bisa diaudit.
 """
 from __future__ import annotations
 

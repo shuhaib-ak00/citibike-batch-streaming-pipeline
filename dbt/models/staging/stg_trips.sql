@@ -1,22 +1,19 @@
 -- ============================================================
 -- stg_trips — staging trip history (batch)
 --
--- Peran: cleaning + penyelarasan tipe. Grain tetap 1:1 dengan raw,
--- tanpa agregasi.
+-- Cleaning + penyelarasan tipe. Grain tetap 1:1 dengan raw, tanpa agregasi.
 --
--- Yang dilakukan:
 --   1. Trim string, normalisasi tipe & kapitalisasi.
---   2. Normalisasi station_id: buang suffix '_' — '5303.06_' dan
---      '5303.06' merujuk stasiun yang sama.
---   3. Petakan station_id ke bentuk KANONIK lewat stg_station_id_mapping,
---      sehingga 65 stasiun yang tercatat dengan dua id (mis. 5343.1 dan
---      5343.10 dengan nama & koordinat identik) menjadi SATU id saja.
+--   2. Normalisasi station_id: buang suffix '_' ('5303.06_' = '5303.06').
+--   3. Petakan station_id ke bentuk kanonik lewat stg_station_id_mapping,
+--      sehingga 65 stasiun ber-id ganda (mis. 5343.1 dan 5343.10 dengan nama &
+--      koordinat identik) menjadi satu id saja.
 --   4. Hitung duration_seconds & trip_date.
---   5. Saring baris VALID saja (aturan DQ dari macro trip_rejection_flags).
---   6. Dedup ride_id — bukan dikarantina, jumlahnya dicatat di
+--   5. Saring baris VALID saja (macro trip_rejection_flags).
+--   6. Dedup ride_id — tidak dikarantina, jumlahnya dicatat di
 --      int_trips_dq_summary.
 --
--- Baris yang gagal DQ TIDAK dibuang: lihat stg_trips_rejected.
+-- Baris gagal DQ TIDAK dibuang — lihat stg_trips_rejected.
 -- ============================================================
 
 WITH source AS (

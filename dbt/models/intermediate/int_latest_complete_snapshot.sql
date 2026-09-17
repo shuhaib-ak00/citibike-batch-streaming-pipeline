@@ -1,26 +1,19 @@
 -- ============================================================
--- int_latest_complete_snapshot — penentu snapshot terakhir yang LENGKAP
+-- int_latest_complete_snapshot — snapshot terakhir yang LENGKAP
 --
--- Masalah yang diselesaikan
--- -------------------------
--- Consumer menulis data secara berkala (flush). Bila penulisan terjadi di
--- tengah sebuah snapshot, satu snapshot akan terpecah menjadi beberapa
--- bagian. Terbukti dari data nyata: dari 118 snapshot, 56 di antaranya
--- tidak lengkap — termasuk snapshot terakhir yang hanya berisi 1 baris.
+-- Bila penulisan consumer terpotong di tengah snapshot, satu snapshot terpecah
+-- menjadi beberapa bagian. Terbukti dari data nyata: 56 dari 118 snapshot tidak
+-- lengkap, termasuk snapshot terakhir yang hanya berisi 1 baris.
 --
--- Akibatnya, "snapshot terakhir" belum tentu berisi seluruh stasiun.
--- Mart yang memakai snapshot terakhir secara buta akan menampilkan peta
--- dan daftar risiko yang nyaris kosong, padahal datanya ada.
+-- Mart yang memakai "snapshot terakhir" secara buta akan menampilkan peta dan
+-- daftar risiko yang nyaris kosong, padahal datanya ada.
 --
--- Cara menentukan "lengkap"
--- ------------------------
--- Sebuah snapshot dianggap lengkap bila memuat hampir seluruh stasiun yang
--- pernah terlihat, yaitu minimal 95% dari jumlah stasiun terbanyak pada
--- snapshot mana pun. Ambangnya relatif terhadap data, bukan angka tetap,
--- sehingga tidak perlu disesuaikan bila jumlah stasiun berubah.
+-- "Lengkap" = memuat minimal 95% dari jumlah stasiun terbanyak pada snapshot
+-- mana pun. Ambangnya relatif terhadap data, bukan angka tetap, sehingga tidak
+-- perlu disesuaikan bila jumlah stasiun berubah.
 --
--- Diletakkan di satu model tersendiri supaya hanya ada SATU definisi
--- "snapshot terkini" di seluruh project; beberapa mart membutuhkannya.
+-- Satu model tersendiri supaya hanya ada SATU definisi "snapshot terkini" di
+-- seluruh project — beberapa mart membutuhkannya.
 --
 -- Grain: 1 baris berisi satu timestamp.
 -- ============================================================

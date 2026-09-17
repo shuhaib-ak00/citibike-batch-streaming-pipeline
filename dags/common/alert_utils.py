@@ -1,20 +1,14 @@
-"""Mekanisme alert kegagalan pipeline.
+"""Alert kegagalan pipeline (log terstruktur + webhook opsional).
 
-Ruang lingkupnya sengaja sempit: **alert otomatis hanya untuk kegagalan
-pipeline**. Risiko operasional stasiun (empty/full) tidak dikirim sebagai
-notifikasi, melainkan ditampilkan sebagai indikator visual di dashboard —
-itu keputusan desain, bukan keterbatasan.
+Ruang lingkup sengaja sempit: hanya kegagalan pipeline. Risiko operasional
+stasiun (empty/full) ditampilkan di dashboard, bukan dikirim sebagai notifikasi.
 
-Dua lapis keluaran:
+Slack Incoming Webhook mewajibkan key ``text``, jadi payload mentah tidak bisa
+dikirim apa adanya (Slack menjawab ``400 invalid_payload``). Karena itu pesan
+teks disusun khusus untuk Slack, sedangkan payload JSON utuh hanya dikirim ke
+webhook generik. Lihat ``_is_slack``.
 
-1. **Log terstruktur** (selalu aktif) — JSON mudah di-grep dan muncul di UI
-   Airflow pada task yang gagal.
-2. **Webhook Slack** (opsional) — aktif begitu ``ALERT_WEBHOOK_URL`` diisi di
-   ``.env``. Karena Slack Incoming Webhook mewajibkan payload ber-key
-   ``text``, payload mentah tidak bisa dikirim apa adanya (Slack merespons
-   ``400 invalid_payload``). ``_send_webhook`` karena itu menyusun pesan teks
-   yang terbaca manusia untuk Slack, dan mengirim payload JSON utuh hanya ke
-   webhook generik.
+Semua pengiriman melewati pembatas di ``common/alert_throttle``.
 """
 from __future__ import annotations
 
@@ -42,20 +36,20 @@ def _is_slack(url: str) -> bool:
 
 
 def _format_alert_text(payload: dict[str, Any]) -> str:
-    """Susun pesan alert yang terbaca manusia untuk Slack.
+    """Susun pesan Slack yang terbaca manusia.
 
     Menangani empat bentuk payload: kegagalan task (``notify``), ringkasan
-    kegagalan DAG-run (``alert_dag_run_failed``), lonjakan karantina
-    (``alert_data_quality``), dan peringatan watchdog streaming
-    (``alert_streaming``).
+    DAG-run (``alert_dag_run_failed``), lonjakan karantina
+    (``alert_data_quality``), dan peringatan watchdog (``alert_streaming``).
+    Tambahkan cabang baru di sini bila menambah jenis alert.
     """
     jenis = payload.get("alert_type")
 
     if jenis == "DAG_RUN_FAILURE":
         judul, ikon = "DAG-run GAGAL", ":rotating_light:"
         gagal = payload.get("failed_tasks") or []
-        # Batasi daftarnya: kegagalan sistemik bisa melibatkan puluhan task,
-        # dan pesan Slack yang terlalu panjang justru menyulitkan dibaca.
+        # Batasi daftar: kegagalan sistemik bisa melibatkan puluhan task, dan
+        # pesan yang kepanjangan justru menyulitkan dibaca.
         tampil = ", ".join(f"`{t}`" for t in gagal[:10])
         if len(gagal) > 10:
             tampil += f" … (+{len(gagal) - 10} lainnya)"

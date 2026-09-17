@@ -1,24 +1,21 @@
 """DAG: ingest GBFS station_information (referensi stasiun).
 
-**Kenapa DAG ini penting.** `station_information` adalah sumber kolom
-`capacity` untuk `dim_station`. Selama tabel ini kosong, `dim_station.capacity`
-selalu NULL sehingga occupancy rate tidak bisa dihitung — artinya mart risk
-monitoring (empty/low/full) kehilangan dasar perhitungannya.
+    fetch_and_stage         ambil + validasi + simpan JSON/NDJSON ke GCS
+      -> check_payload_quality  gate: hentikan bila >5% stasiun gagal validasi
+      -> load_reference         replace penuh tabel referensi
+      -> verify_reference       cek jumlah baris & capacity terisi
 
-**Kenapa DAG terpisah, bukan bagian producer.** Sumbernya semi-statis (jarang
-berubah), jadi cukup di-refresh berkala. Dipisah dari producer membuat tiap
-bagian dapat dijalankan dan diverifikasi sendiri.
+Catatan pengembangan:
 
-Alur:
-    fetch station_information.json
-      -> validasi envelope + tiap stasiun
-      -> simpan JSON mentah & NDJSON ke GCS (arsip + bahan replay saat demo)
-      -> gate kualitas payload
-      -> replace penuh tabel referensi di BigQuery
-      -> verifikasi jumlah baris & ketersediaan capacity
+- Ini sumber kolom ``capacity`` untuk ``dim_station``. Tanpa tabel ini occupancy
+  rate tidak bisa dihitung, sehingga mart risk monitoring kehilangan dasarnya.
 
-Idempotensi: tabel referensi ini **di-replace penuh** setiap run. Aman karena
-tidak ada penulis lain, dan menghindari kebutuhan dedup di `dim_station`.
+- Dipisah dari producer karena sumbernya semi-statis (jarang berubah), sehingga
+  tiap bagian dapat dijalankan dan diverifikasi sendiri.
+
+- Idempoten lewat replace penuh (``WRITE_TRUNCATE``). Aman karena tidak ada
+  penulis lain. ``load_reference`` MENOLAK replace bila payload kosong, supaya
+  tabel lama tidak terhapus oleh respons yang rusak.
 """
 from __future__ import annotations
 

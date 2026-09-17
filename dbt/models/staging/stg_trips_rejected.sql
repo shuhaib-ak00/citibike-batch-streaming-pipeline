@@ -1,19 +1,18 @@
 -- ============================================================
--- stg_trips_rejected — tabel karantina trip
+-- stg_trips_rejected — karantina trip
 --
--- Prinsip "never silently drop data": baris yang gagal validasi bisnis
--- tetap disimpan lengkap + alasan penolakan + waktu karantina, supaya
--- bisa diaudit (data apa yang gagal, kenapa, seberapa sering).
+-- Baris yang gagal validasi bisnis tetap disimpan lengkap + alasan penolakan +
+-- waktu karantina, supaya bisa diaudit (data apa yang gagal, kenapa, seberapa
+-- sering). Prinsipnya "never silently drop data".
 --
--- Dibangun dari SUMBER RAW YANG SAMA dengan stg_trips, dan memakai
--- macro trip_rejection_flags() yang sama sehingga definisi valid
+-- Dibangun dari sumber RAW yang sama dan memakai macro
+-- ``trip_rejection_flags()`` yang sama dengan stg_trips, sehingga definisi valid
 -- di kedua model dijamin identik.
 --
--- Model ini sengaja bermaterialisasi VIEW (mengikuti default folder
--- staging), bukan tabel. Alasannya: `check_quarantine_surge` membutuhkan
--- rasio baris ditolak per eksekusi dbt, sehingga isinya harus selalu
--- mencerminkan data raw saat ini. Sebagai view, masa hidupnya otomatis
--- mengikuti tabel raw dan tidak perlu retensi tersendiri.
+-- Catatan pengembangan: JANGAN ubah model ini menjadi tabel. Ia sengaja view
+-- (mengikuti default folder staging) karena ``check_quarantine_surge``
+-- membutuhkan rasio baris ditolak PER EKSEKUSI dbt; akumulasi historis akan
+-- membuat rasio itu salah. Sebagai view, masa hidupnya otomatis mengikuti raw.
 -- ============================================================
 
 WITH source AS (

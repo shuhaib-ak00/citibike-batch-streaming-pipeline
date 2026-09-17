@@ -1,42 +1,31 @@
 -- ============================================================
--- stg_station_id_mapping — pemetaan station_id -> station_id kanonik
+-- stg_station_id_mapping — station_id -> station_id kanonik
 --
--- MASALAH YANG DISELESAIKAN (temuan verifikasi mart)
--- ---------------------------------------------------
--- Ditemukan 65 stasiun fisik yang tercatat dengan DUA station_id
--- berbeda karena perbedaan gaya penulisan digit terakhir:
+-- Menyatukan station_id yang sebenarnya menunjuk satu stasiun fisik, mis:
 --
 --     5343.1   Allen St & Hester St   lat=40.71606 lng=-73.99191
 --     5343.10  Allen St & Hester St   lat=40.71606 lng=-73.99191
---             ^ koordinat IDENTIK, nama IDENTIK
 --
--- Dampak: satu stasiun muncul sebagai dua baris di chart/peta, dan
--- analisis net_flow menjadi bias (mis. 5343.1 net -4.645 dan
--- 5343.10 net +4.536 terlihat "seimbang" padahal gabungannya tidak).
+-- Dampaknya bukan sekadar kerapian: satu stasiun muncul sebagai dua baris di
+-- peta, dan net_flow jadi bias (—4.645 dan +4.536 terlihat "seimbang" padahal
+-- gabungannya tidak). Pengecekan format tidak menangkapnya karena `5343.1`
+-- lolos regex.
 --
--- Pengecekan format (`invalid_station_id`) tidak menangkapnya karena
--- `5343.1` lolos regex format yang sah.
+-- Catatan pengembangan:
 --
--- KRITERIA PENGGABUNGAN (sengaja konservatif)
--- -------------------------------------------
--- Dua station_id digabung HANYA bila ketiganya sama:
---     (1) nama stasiun (setelah TRIM, case-insensitive)
---     (2) latitude  (dibulatkan 6 desimal)
---     (3) longitude (dibulatkan 6 desimal)
+-- - Penggabungan sengaja konservatif: HANYA bila nama (TRIM, case-insensitive)
+--   + latitude + longitude (dibulatkan 6 desimal) ketiganya sama. Kriteria
+--   koordinat itu yang menjaga stasiun yang MEMANG terpisah tidak ikut
+--   tergabung. Terbukti ada 2 pasang nama kembar berkoordinat berbeda:
+--       7625.18 vs 7625.22  (E 118 St & Park Ave)     -> dibiarkan
+--       8381.04 vs 8421.03  (W 181 St & Riverside Dr) -> dibiarkan
 --
--- Kriteria koordinat inilah yang menjaga agar stasiun yang MEMANG
--- terpisah tidak ikut tergabung. Terverifikasi: dari 67 pasangan
--- nama-kembar, 65 berpola artifact dengan koordinat identik,
--- sedangkan 2 sisanya punya koordinat berbeda:
---     7625.18 vs 7625.22  (E 118 St & Park Ave)      -> dibiarkan
---     8381.04 vs 8421.03  (W 181 St & Riverside Dr)  -> dibiarkan
+-- - Id kanonik = mentions terbanyak, tie-break `station_id` menaik agar
+--   deterministik.
 --
--- Id kanonik dipilih = yang paling banyak dipakai (mentions terbanyak),
--- dengan tie-break `station_id` menaik agar deterministik.
---
--- DIMATERIALISASI SEBAGAI TABLE karena tabelnya kecil (~2.350 baris)
--- tetapi dipakai berulang oleh stg_trips & stg_trips_rejected; sebagai
--- view, setiap pemakaian akan memicu pemindaian ulang raw (1,1 GiB).
+-- - Materialized table, bukan view: dipakai berulang oleh stg_trips dan
+--   stg_trips_rejected, sedangkan sebagai view setiap pemakaian memindai ulang
+--   raw (1,1 GiB).
 -- ============================================================
 
 {{ config(materialized='table', tags=['staging']) }}

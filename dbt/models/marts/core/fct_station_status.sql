@@ -1,22 +1,21 @@
 -- ============================================================
 -- fct_station_status — fact table status stasiun (periodic snapshot fact)
 --
--- Grain: **1 baris per stasiun per snapshot polling**.
+-- Grain: 1 baris per stasiun per snapshot polling.
 --
--- Ini periodic snapshot fact, bukan transaction fact seperti fct_trips.
--- Bedanya penting: setiap polling merekam kondisi SELURUH stasiun, bukan
--- hanya yang mengalami perubahan. Konsekuensinya tabel ini tumbuh cepat
--- (±2.500 baris tiap 90 detik) tetapi selalu memberi gambaran lengkap —
--- tidak perlu merekonstruksi keadaan dari selisih antar waktu.
+-- Periodic snapshot, bukan transaction fact seperti fct_trips: setiap polling
+-- merekam kondisi SELURUH stasiun, bukan hanya yang berubah. Tabelnya tumbuh
+-- cepat (~2.500 baris/90 detik) tetapi selalu memberi gambaran lengkap.
 --
--- Karena itu agregasi (mis. rata-rata hunian per jam, durasi sebuah
--- stasiun berada dalam kondisi berisiko) dilakukan dengan GROUP BY atas
--- bucket waktu, bukan dengan validity window.
+-- Agregasi (rata-rata hunian per jam, durasi kondisi berisiko) dilakukan dengan
+-- GROUP BY bucket waktu, bukan validity window.
 --
--- Partition: harian pada snapshot_date — wajib, karena tanpa partisi
--- setiap query "kondisi terkini" akan memindai seluruh riwayat.
--- Cluster: station_key — kolom yang selalu dipakai untuk memfilter
--- stasiun tertentu.
+-- Partition harian pada `snapshot_date` WAJIB — tanpa itu setiap query "kondisi
+-- terkini" memindai seluruh riwayat. Cluster `station_key` karena kolom itu yang
+-- selalu dipakai memfilter stasiun.
+--
+-- `station_key` boleh NULL (stasiun tanpa riwayat trip). Kunci yang tidak pernah
+-- NULL adalah `gbfs_station_id` — pakai itu untuk membandingkan antar snapshot.
 -- ============================================================
 
 {{ config(

@@ -1,28 +1,25 @@
 -- ============================================================
 -- int_station_demand_vs_supply — pertemuan batch & streaming
 --
--- Model ini adalah tempat **insight lintas sumber** lahir: permintaan
--- historis (dari riwayat trip) dipertemukan dengan pasokan saat ini
--- (dari snapshot streaming). Pertanyaan yang dijawabnya:
+-- Mempertemukan permintaan historis (riwayat trip) dengan pasokan terkini
+-- (snapshot streaming):
 --
 --     "Stasiun mana yang secara historis banyak ditinggalkan, tetapi
 --      saat ini justru kekurangan sepeda?"
 --
--- Definisi permintaan sengaja diambil dari model ini agar menjadi
--- **satu-satunya sumber kebenaran** untuk angka net_flow per stasiun;
--- mart lain yang membutuhkannya membaca dari sini.
+-- Catatan pengembangan:
 --
--- Normalisasi musiman: data batch berasal dari Jan-Mar (musim dingin),
--- sedangkan demo berlangsung pada periode berbeda. Angka absolut karena
--- itu tidak sebanding antar musim, sehingga disertakan kolom
--- peringkat/rasio relatif. Pembacaan sebaiknya memakai kolom
--- *\_rank* dan *\_ratio*, bukan angka absolut.
+-- - Model ini adalah SATU-SATUNYA sumber definisi net_flow per stasiun. Mart
+--   lain yang membutuhkannya membaca dari sini — jangan duplikasi rumusnya.
+--
+-- - Normalisasi musiman: data batch dari Jan-Mar (musim dingin), sedangkan
+--   dashboard mungkin menampilkan periode berbeda. Karena itu angka absolut
+--   tidak sebanding antar musim; pakai kolom *_rank dan *_ratio.
+--
+-- - LEFT JOIN dari sisi permintaan supaya mart batch tetap utuh walau
+--   streaming belum berjalan.
 --
 -- Grain: 1 baris per stasiun.
---
--- Mengapa LEFT JOIN dari sisi permintaan: mart batch harus tetap utuh
--- walau streaming belum berjalan, sehingga absennya pasokan tidak
--- menghilangkan stasiun dari analisis permintaan.
 -- ============================================================
 
 WITH trips AS (

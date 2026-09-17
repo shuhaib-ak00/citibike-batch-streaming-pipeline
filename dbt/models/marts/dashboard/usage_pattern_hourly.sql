@@ -1,9 +1,8 @@
 -- ============================================================
--- usage_pattern_hourly — mart dashboard #3
--- Chart: heatmap "jam x hari".
+-- usage_pattern_hourly — mart dashboard (chart 3: heatmap jam x hari)
 --
--- Mart ini menunjukkan pola jam sibuk commuter: puncak pagi di area
--- perkantoran, puncak sore di area residensial.
+-- Menunjukkan pola jam sibuk commuter: puncak pagi di area perkantoran, puncak
+-- sore di area residensial.
 --
 -- Grain: 1 baris per (hari-dalam-minggu, jam).
 -- ============================================================

@@ -1,6 +1,5 @@
 -- ============================================================
--- trip_summary_daily — mart dashboard #1
--- Chart: line "total trips per hari" (tren demand harian).
+-- trip_summary_daily — mart dashboard (chart 1: tren demand harian)
 --
 -- Grain: 1 baris per tanggal.
 -- ============================================================
