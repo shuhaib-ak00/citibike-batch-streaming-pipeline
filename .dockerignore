@@ -1,0 +1,44 @@
+# ============================================================
+# Kecualikan file besar/tidak relevan dari build context Docker.
+# Tanpa ini, `docker compose build` akan mengirim .venv (ratusan MB)
+# dan data/raw (1,15 GB) ke Docker daemon -> build sangat lambat.
+# ============================================================
+
+# Data besar
+data/raw/
+data/sample/
+*.csv
+*.zip
+
+# Virtualenv & cache Python
+.venv/
+**/__pycache__/
+**/*.pyc
+.ipynb_checkpoints/
+
+# Notebook & dokumen (tidak dipakai saat build)
+notebooks/
+docs/
+metabase/
+*.md
+
+# Sumber lain (di-mount saat runtime, bukan dikopi)
+dags/
+dbt/
+sql/
+infra/
+streaming/
+secrets/
+
+# Git & IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# HARUS tetap tersedia untuk COPY di Dockerfile:
+#   docker/airflow/requirements.txt
+#   docker/streaming/requirements.txt
+#   docker/streaming/entrypoint.sh
+!docker/
+!docker/**

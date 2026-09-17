@@ -1,0 +1,197 @@
+version: 2
+
+models:
+  - name: dim_station
+    description: >
+      Dimensi stasiun, sekaligus jembatan antara dua ruang ID: id legacy dari
+      riwayat trip (mis. '5343.10') dan id GBFS dari station_information
+      (UUID atau angka besar). Keduanya dihubungkan lewat kolom `short_name`
+      GBFS yang berisi id legacy tersebut.
+      Capacity terisi untuk 98,3% stasiun; sisanya (38 stasiun) sudah tidak
+      ada di feed GBFS sehingga dibiarkan NULL — karena itu `capacity` tidak
+      diuji not_null, melainkan ditandai lewat `has_capacity_info`.
+    columns:
+      - name: station_key
+        data_tests:
+          - not_null
+          - unique
+      - name: station_id
+        description: ID legacy dari riwayat trip — kunci yang dipakai fct_trips.
+        data_tests:
+          - not_null
+          - unique
+      - name: gbfs_station_id
+        description: >
+          ID dari feed GBFS — kunci yang dipakai fct_station_status.
+          NULL bila stasiun sudah tidak ada di feed.
+        data_tests:
+          - unique
+      - name: station_name
+        description: Nama stasiun terbaru yang diketahui.
+      - name: capacity
+        description: >
+          Kapasitas dock dari GBFS. NULL berarti stasiun tidak ditemukan di
+          feed — bukan berarti kapasitas nol.
+      - name: is_missing_from_gbfs
+        description: True bila stasiun dipakai di riwayat trip tetapi tidak ada di feed GBFS.
+
+  - name: dim_date
+    description: >
+      Dimensi tanggal (date spine). Rentangnya adalah gabungan rentang trip
+      dan snapshot streaming, ditambah buffer 7 hari ke depan agar dimensi
+      selalu lebih dulu siap dibanding fakta yang merujuknya (lihat komentar
+      di dim_date.sql).
+    columns:
+      - name: date_key
+        description: Kunci tanggal format YYYYMMDD (integer).
+        data_tests:
+          - not_null
+          - unique
+      - name: date_day
+        data_tests:
+          - not_null
+          - unique
+      - name: day_of_week
+        description: ISO — 1 = Senin ... 7 = Minggu.
+        data_tests:
+          # quote: false WAJIB untuk kolom numerik.
+          # Default dbt merender nilai sebagai string: not in ('1','2',...)
+          # sementara kolomnya INT64 -> BigQuery menolak dengan
+          # "No matching signature for operator IN for argument types
+          #  INT64 and {STRING}".
+          - accepted_values:
+              quote: false
+              values: [1, 2, 3, 4, 5, 6, 7]
+
+  - name: dim_rider_type
+    description: Dimensi tipe pengguna (member / casual).
+    columns:
+      - name: rider_type_key
+        data_tests:
+          - not_null
+          - unique
+      - name: member_casual
+        data_tests:
+          - not_null
+          - unique
+          - accepted_values:
+              values: ["member", "casual"]
+
+  - name: fct_trips
+    description: >
+      Fact trip (transaction fact). Grain: 1 baris per trip.
+      Dipartisi harian pada trip_date dan di-cluster pada
+      (start_station_id, member_casual) untuk memangkas bytes scanned.
+    columns:
+      - name: trip_key
+        data_tests:
+          - not_null
+          - unique
+      - name: ride_id
+        data_tests:
+          - not_null
+          - unique
+      - name: trip_date
+        data_tests:
+          - not_null
+      - name: duration_seconds
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: distance_km
+        description: >
+          Jarak garis lurus (haversine) dalam km. NULL bila salah satu
+          koordinat tidak tersedia — sengaja tidak diisi 0.
+      - name: start_hour
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 23"
+
+      # ---- referential integrity ----
+      - name: start_station_key
+        description: NULL bila stasiun awal tidak teridentifikasi.
+        data_tests:
+          - relationships:
+              to: ref('dim_station')
+              field: station_key
+      - name: end_station_key
+        data_tests:
+          - relationships:
+              to: ref('dim_station')
+              field: station_key
+      - name: start_date_key
+        data_tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: rider_type_key
+        data_tests:
+          - relationships:
+              to: ref('dim_rider_type')
+              field: rider_type_key
+
+  - name: fct_station_status
+    description: >
+      Fact status stasiun (periodic snapshot). Grain: 1 baris per stasiun per
+      snapshot polling, sehingga tabel ini tumbuh cepat tetapi selalu memberi
+      gambaran lengkap. Dipartisi harian pada snapshot_date dan di-cluster
+      pada station_key.
+    columns:
+      - name: station_status_key
+        data_tests:
+          - not_null
+          - unique
+      - name: gbfs_station_id
+        data_tests:
+          - not_null
+      - name: snapshot_timestamp
+        data_tests:
+          - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: num_bikes_available
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: num_docks_available
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: occupancy_rate_pct
+        description: Persentase hunian 0-100; NULL bila kapasitas tidak diketahui.
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 100"
+      - name: risk_level
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - empty
+                - low
+                - balanced
+                - high
+                - full
+                - not_operational
+                - unknown_capacity
+
+      # ---- referential integrity ----
+      # Keduanya NULL untuk stasiun yang ada di feed GBFS tetapi tidak punya
+      # padanan di dimensi (mis. stasiun baru yang belum muncul di riwayat
+      # trip). Baris seperti itu tetap disimpan agar bisa diaudit, dan
+      # ditandai lewat is_unknown_station.
+      - name: station_key
+        description: NULL bila stasiun tidak ada di dim_station.
+        data_tests:
+          - relationships:
+              to: ref('dim_station')
+              field: station_key
+      - name: snapshot_date_key
+        data_tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_key

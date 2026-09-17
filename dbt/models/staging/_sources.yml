@@ -1,0 +1,46 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Raw layer — data sumber apa adanya. Tabel ditulis oleh DAG ingestion
+      (`citibike_ingest_trips`) dan consumer streaming.
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_DATASET_RAW', 'nama_citibike_raw') }}"
+
+    tables:
+      - name: trips
+        description: >
+          Trip history Citi Bike (batch). Grain: 1 baris per trip.
+          Dipartisi harian pada kolom `_ride_started_date`.
+        config:
+          loaded_at_field: _ingested_at
+        columns:
+          - name: ride_id
+            description: ID unik trip dari sumber (natural key).
+          - name: started_at
+            description: Waktu mulai trip (waktu lokal NYC, tanpa timezone).
+          - name: ended_at
+            description: Waktu selesai trip.
+          - name: _source_file
+            description: Nama file CSV asal — jejak audit.
+          - name: _ingested_at
+            description: Waktu load ke BigQuery.
+          - name: _ride_started_date
+            description: Kunci partisi = DATE(started_at).
+
+      - name: station_status
+        description: >
+          GBFS station_status (streaming, periodic snapshot).
+          Grain: 1 baris per stasiun per polling.
+
+      - name: station_status_dlq
+        description: Dead Letter Queue untuk payload yang gagal di-parse.
+
+      - name: station_information
+        description: >
+          GBFS station_information — referensi semi-statis (kapasitas & koordinat).
+          Sumber pengayaan `dim_station`.
+
+      - name: dq_metrics
+        description: Metrik kualitas data per batch/polling (dasar alert lonjakan karantina).

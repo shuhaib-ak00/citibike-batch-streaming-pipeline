@@ -1,0 +1,148 @@
+version: 2
+
+models:
+  # ==========================================================
+  # stg_trips — staging trip valid
+  # ==========================================================
+  - name: stg_trips
+    description: >
+      Trip history bersih & tervalidasi. Grain: 1 baris per trip.
+      Baris yang gagal DQ dipindahkan ke stg_trips_rejected, bukan dibuang.
+    columns:
+      - name: ride_id
+        description: Natural key trip (sudah di-dedup).
+        data_tests:
+          - not_null
+          - unique
+      - name: started_at
+        data_tests:
+          - not_null
+      - name: ended_at
+        data_tests:
+          - not_null
+      - name: duration_seconds
+        description: Durasi trip (detik) = ended_at - started_at.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+          - dbt_utils.expression_is_true:
+              expression: "<= {{ var('max_trip_duration_seconds') }}"
+      - name: trip_date
+        description: Tanggal mulai trip — dipakai sebagai kunci partisi.
+        data_tests:
+          - not_null
+      - name: rideable_type
+        data_tests:
+          - accepted_values:
+              values: ["classic_bike", "electric_bike"]
+      - name: member_casual
+        data_tests:
+          - accepted_values:
+              values: ["member", "casual"]
+      - name: start_station_id
+        description: >
+          ID stasiun awal, sudah dinormalisasi (suffix '_' dibuang, TRIM).
+          Null bila stasiun awal tidak teridentifikasi.
+      - name: end_station_id
+        description: ID stasiun akhir, sudah dinormalisasi.
+
+  # ==========================================================
+  # stg_station_id_mapping — pemetaan id kanonik
+  # ==========================================================
+  - name: stg_station_id_mapping
+    description: >
+      Pemetaan station_id -> station_id kanonik. Menggabungkan station_id
+      yang menunjuk stasiun fisik yang sama (nama + koordinat identik),
+      mis. 5343.1 dan 5343.10 pada Allen St & Hester St.
+      Dibangun dari sumber raw (bukan stg_trips) agar tidak sirkular.
+    columns:
+      - name: station_id
+        description: ID seperti yang tercatat di sumber (sudah dinormalisasi suffix '_').
+        data_tests:
+          - not_null
+          - unique
+      - name: canonical_station_id
+        description: ID kanonik hasil penggabungan; sama dengan station_id bila tidak ada duplikat.
+        data_tests:
+          - not_null
+      - name: is_merged_duplicate
+        description: True bila id ini merupakan duplikat yang digabung ke id lain.
+      - name: ids_in_group
+        description: Jumlah station_id dalam kelompok (nama + koordinat) yang sama.
+
+  # ==========================================================
+  # stg_trips_rejected — tabel karantina
+  # ==========================================================
+  - name: stg_trips_rejected
+    description: >
+      Baris trip yang gagal validasi bisnis. Tidak pernah dibuang supaya
+      bisa diaudit (data apa yang gagal, kenapa, seberapa sering).
+      Retention 30 hari via sql/bigquery/02_cleanup_rejected.sql.
+    columns:
+      - name: rejection_reason
+        description: >
+          Alasan penolakan; bisa berisi beberapa alasan dipisah koma.
+          Contoh: duration_extreme, invalid_start_station_id.
+        data_tests:
+          - not_null
+      - name: quarantined_at
+        data_tests:
+          - not_null
+
+  # ==========================================================
+  # stg_station_status — status stasiun (streaming)
+  # ==========================================================
+  - name: stg_station_status
+    description: >
+      Status stasiun hasil polling GBFS yang sudah bersih dan tervalidasi.
+      Grain: 1 baris per stasiun per observasi. Duplikat dari pengiriman
+      ulang Kafka sudah dirapikan lewat kunci (station_id, last_reported).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - station_id
+            - last_reported
+    columns:
+      - name: station_id
+        description: ID stasiun versi GBFS (UUID atau angka).
+        data_tests:
+          - not_null
+      - name: num_bikes_available
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: num_docks_available
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: last_reported
+        description: >
+          Waktu laporan operator. Sudah dipastikan bukan sentinel epoch dan
+          tidak berada di masa depan.
+        data_tests:
+          - not_null
+      - name: snapshot_timestamp
+        data_tests:
+          - not_null
+      - name: report_age_seconds
+        description: Selisih snapshot_timestamp - last_reported, dasar freshness check.
+
+  # ==========================================================
+  # stg_station_status_rejected
+  # ==========================================================
+  - name: stg_station_status_rejected
+    description: >
+      Baris status stasiun yang gagal validasi, disimpan lengkap dengan
+      alasan penolakan. Kasus terbesar dari data nyata: last_reported
+      bernilai sentinel epoch (1970-01-02) dari stasiun yang tidak
+      melaporkan status.
+    columns:
+      - name: rejection_reason
+        data_tests:
+          - not_null
+      - name: quarantined_at
+        data_tests:
+          - not_null

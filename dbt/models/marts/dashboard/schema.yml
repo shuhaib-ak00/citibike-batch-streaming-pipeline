@@ -1,0 +1,146 @@
+version: 2
+
+models:
+  - name: trip_summary_daily
+    description: |
+      Mart dashboard #1 — tren demand harian.
+      Grain: 1 baris per tanggal. Dipakai untuk chart line "total trips per hari".
+    columns:
+      - name: date_day
+        data_tests:
+          - not_null
+          - unique
+      - name: total_trips
+        data_tests:
+          - not_null
+      - name: member_share_pct
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 100"
+
+  - name: station_popularity
+    description: |
+      Mart dashboard #2 — aktivitas per stasiun (keberangkatan + kedatangan).
+      Grain: 1 baris per stasiun. Dipakai untuk chart bar "top 10 stasiun tersibuk".
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - unique
+      - name: total_activity
+        data_tests:
+          - not_null
+      - name: departure_count
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: arrival_count
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+  - name: usage_pattern_hourly
+    description: |
+      Mart dashboard #3 — pola jam x hari (heatmap).
+      Grain: 1 baris per (day_of_week, start_hour).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - day_of_week
+            - start_hour
+    columns:
+      - name: start_hour
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 23"
+      - name: share_of_total_pct
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 100"
+
+  - name: member_vs_casual_behavior
+    description: |
+      Mart dashboard #4 — perbandingan profil member vs casual.
+      Grain: 1 baris per rider_type.
+    columns:
+      - name: member_casual
+        data_tests:
+          - not_null
+          - unique
+      - name: share_of_total_pct
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 100"
+
+  # ==========================================================
+  # Mart streaming (chart 5-7)
+  # ==========================================================
+  - name: station_availability_realtime
+    description: >
+      Mart dashboard #5 — kondisi terkini setiap stasiun, untuk peta.
+      Berisi HANYA snapshot terakhir dan dimaterialisasi sebagai table,
+      supaya auto-refresh tiap menit tidak memindai seluruh riwayat.
+      Grain: 1 baris per stasiun.
+    columns:
+      - name: gbfs_station_id
+        data_tests:
+          - not_null
+          - unique
+      - name: last_snapshot_at
+        data_tests:
+          - not_null
+      - name: availability_label
+        data_tests:
+          - not_null
+      - name: occupancy_rate_pct
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 100"
+
+  - name: station_risk_monitoring
+    description: >
+      Mart dashboard #6 — stasiun yang perlu perhatian tim ops saat ini,
+      diurutkan dari yang paling mendesak (kandidat rebalancing).
+      Hanya memuat stasiun beroperasi, tidak basi, dan berkapasitas.
+      Grain: 1 baris per stasiun berisiko.
+    columns:
+      - name: gbfs_station_id
+        data_tests:
+          - not_null
+          - unique
+      - name: risk_level
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["empty", "low", "high", "full"]
+      - name: recommended_action
+        data_tests:
+          - not_null
+      - name: bikes_to_move
+        description: Jumlah sepeda yang perlu dipindahkan agar hunian kembali ke 50%.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+      - name: risk_rank
+        data_tests:
+          - not_null
+
+  - name: station_supply_demand
+    description: >
+      Mart dashboard #7 — pertemuan permintaan historis (batch) dengan
+      pasokan terkini (streaming). Menandai stasiun yang secara historis
+      banyak ditinggalkan namun saat ini menipis — prioritas pengiriman.
+      Grain: 1 baris per stasiun.
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - unique
+      - name: imbalance_direction
+        data_tests:
+          - not_null
+      - name: activity_share
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 1"

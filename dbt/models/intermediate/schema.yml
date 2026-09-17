@@ -1,0 +1,160 @@
+version: 2
+
+models:
+  - name: int_stations_deduplicated
+    description: >
+      Daftar stasiun unik dari titik awal & akhir trip. Nama dan koordinat
+      diambil dari kemunculan terbaru yang tidak null, sehingga rename
+      stasiun dan GPS gagal tidak menghasilkan baris ganda/aneh.
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - unique
+      - name: station_name
+        description: Nama terbaru yang tersedia untuk stasiun ini.
+
+  - name: int_trips_dq_summary
+    description: >
+      Metrik kualitas data per (source_file, rejection_reason). Baris dengan
+      rejection_reason NULL merepresentasikan baris VALID. Dipakai untuk
+      audit dan sebagai dasar alert lonjakan karantina (>5%).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - _source_file
+            - rejection_reason
+    columns:
+      - name: _source_file
+        description: Nama file CSV asal (jejak audit).
+        data_tests:
+          - not_null
+      - name: row_count
+        data_tests:
+          - not_null
+      - name: rejected_pct
+        description: Persentase baris gagal DQ dari file ini (0-100).
+
+  - name: int_station_risk_calculation
+    description: >
+      Status stasiun yang diperkaya kapasitas dari dimensi, lengkap dengan
+      occupancy_rate_pct dan klasifikasi risk_level. Menandai pula stasiun
+      yang tidak beroperasi, data yang tidak segar, dan stasiun yang tidak
+      ada di dimensi.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - gbfs_station_id
+            - last_reported
+    columns:
+      - name: gbfs_station_id
+        data_tests:
+          - not_null
+      - name: risk_level
+        description: empty | low | balanced | high | full | not_operational | unknown_capacity
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - empty
+                - low
+                - balanced
+                - high
+                - full
+                - not_operational
+                - unknown_capacity
+      - name: occupancy_rate_pct
+        description: >
+          Persentase hunian (0-100). NULL bila kapasitas tidak diketahui —
+          sengaja tidak diisi 0 karena 0 berarti "kosong", arti
+          operasionalnya berbeda.
+      - name: is_stale
+        description: True bila last_reported lebih tua dari ambang freshness.
+
+  - name: int_station_demand_vs_supply
+    description: >
+      Pertemuan permintaan historis (batch) dengan pasokan terkini
+      (streaming), 1 baris per stasiun. Angka absolut tidak sebanding antar
+      musim, sehingga disertakan kolom peringkat dan rasio relatif.
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - unique
+      - name: activity_share
+        description: Pangsa aktivitas stasiun terhadap total (0..1).
+        data_tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 1"
+
+  - name: int_station_status_changes
+    description: >
+      Snapshot-diff CDC: 1 baris per PERUBAHAN nyata per stasiun. Hanya
+      baris yang benar-benar berubah yang disimpan, sehingga menjadi arsip
+      jangka panjang yang tidak bergantung pada retensi raw maupun
+      fct_station_status.
+    data_tests:
+      # Menangkap duplikat bila filter incremental salah. Duplikat membuat
+      # arsip perubahan tidak bisa dipercaya, dan itu kegagalan yang mudah
+      # terjadi pada model append-only.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - gbfs_station_id
+            - valid_from
+      # Invariant: bikes_before hanya boleh NULL pada op='c'.
+      #
+      # Diletakkan di level MODEL, bukan level kolom: pada level kolom dbt
+      # menambahkan prefiks nama kolom di depan ekspresi, sehingga menjadi
+      # `bikes_before op = 'u' OR ...` dan BigQuery menolaknya.
+      - dbt_utils.expression_is_true:
+          expression: "op = 'u' OR bikes_before IS NULL"
+    columns:
+      - name: gbfs_station_id
+        description: >
+          Identitas stasiun dari feed GBFS. Dipakai sebagai kunci diff karena
+          tidak pernah NULL — berbeda dari station_key yang NULL untuk
+          stasiun tanpa riwayat trip.
+        data_tests:
+          - not_null
+      - name: station_key
+        description: >
+          Kunci dimensi; boleh NULL bila stasiun tidak ada di dim_station
+          (lihat is_unknown_station).
+      - name: valid_from
+        description: Waktu snapshot saat perubahan ini terdeteksi.
+        data_tests:
+          - not_null
+      - name: op
+        description: "'c' = kemunculan pertama yang tercatat, 'u' = berubah."
+        data_tests:
+          # quote: false WAJIB untuk nilai non-numerik pendek seperti ini
+          # agar tidak dirender sebagai ekspresi kolom.
+          - accepted_values:
+              values: ["c", "u"]
+      - name: bikes_before
+        description: >
+          Jumlah sepeda sebelum perubahan. NULL hanya pada op='c', karena
+          tidak ada keadaan sebelumnya untuk dibandingkan.
+
+  - name: int_station_status_windows
+    description: >
+      Rentang waktu antar perubahan (validity window), turunan dari
+      int_station_status_changes. Dipakai untuk mengukur berapa lama sebuah
+      stasiun bertahan dalam suatu kondisi — pertanyaan yang tidak bisa
+      dijawab periodic snapshot murni.
+    columns:
+      - name: valid_from
+        data_tests:
+          - not_null
+      - name: valid_to
+        description: >
+          Awal perubahan berikutnya. NULL berarti keadaan ini masih
+          berlangsung, sehingga durasinya belum bisa ditentukan.
+      - name: duration_minutes
+        description: Lama keadaan ini bertahan, dalam menit.
+      - name: is_possible_gap
+        description: >
+          True bila interval ini terlalu panjang untuk sekadar "tidak ada
+          perubahan", sehingga kemungkinan besar ada data yang tidak
+          terkumpul (streaming mati) di antaranya. Saring kolom ini sebelum
+          memakai duration_minutes untuk analisis dwell time.

@@ -1,0 +1,22 @@
+# ============================================================
+# Salin file ini menjadi `profiles.yml` di folder yang sama.
+# Tidak berisi secret — semua nilai lewat env_var dari `.env`.
+#
+# Struktur dataset per layer (citibike_staging, citibike_marts, ...)
+# dibuat oleh custom macro generate_schema_name di Fase C.
+# Nilai BQ_DATASET_DBT adalah dataset dasar.
+# ============================================================
+
+citibike:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('BQ_DATASET_DBT') }}"
+      location: "{{ env_var('GCP_LOCATION', 'asia-southeast2') }}"
+      threads: 4
+      timeout_seconds: 300
+      priority: interactive

@@ -1,0 +1,54 @@
+# ===== Env & secret =====
+.env
+.env.*
+!.env.example
+secrets/*
+!secrets/README.md
+service-account*.json
+*.key
+
+# ===== Data besar: jangan di-commit =====
+*.csv
+!data/sample/**
+*.zip
+# Folder data mentah tidak di-commit isinya, tetapi foldernya perlu tetap
+# ada di repo agar `docker-compose.yml` (bind mount ./data/raw) tidak gagal
+# pada clone segar. Tanpa pengecualian ini, `.gitkeep` ikut ter-ignore dan
+# foldernya hilang dari repo.
+data/raw/*
+!data/raw/.gitkeep
+
+# ===== Python =====
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# ===== dbt =====
+dbt/logs/
+dbt/target/
+dbt/packages/
+dbt/dbt_packages/
+# CATATAN: dbt/profiles/profiles.yml SENGAJA di-commit.
+# File itu tidak menyimpan kredensial apa pun (hanya env_var), sehingga
+# repo tetap bisa dijalankan setelah clone tanpa langkah manual.
+
+# ===== Airflow =====
+logs/
+airflow.cfg
+airflow.db
+
+# ===== Volume service lokal (bind mount via compose) =====
+metabase-data/
+kafka-data/
+zookeeper-data/
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# FILE BRIEF
+Guideline & Standar Penilaian Final Project - JCDEAH-009.md
+Project_Brief_CitiBike_Pipeline.md

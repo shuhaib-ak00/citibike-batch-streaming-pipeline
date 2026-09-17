@@ -1,0 +1,44 @@
+# ============================================================
+# Profil koneksi dbt -> BigQuery.
+#
+# File ini SENGAJA di-commit: tidak menyimpan kredensial apa pun,
+# hanya merujuk environment variable. Dengan begitu repo tetap bisa
+# dijalankan setelah clone tanpa langkah manual.
+#
+# Nilai env yang dipakai (dari .env):
+#   GOOGLE_APPLICATION_CREDENTIALS  path file service account JSON
+#   GCP_PROJECT_ID                  project GCP
+#   BQ_DATASET_DBT                  dataset dasar (suffix layer ditambah macro)
+#   GCP_LOCATION                    lokasi dataset (harus konsisten dgn GCS)
+# ============================================================
+
+citibike:
+  target: prod
+  outputs:
+    prod:
+      type: bigquery
+      method: service-account
+      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('BQ_DATASET_DBT') }}"
+      location: "{{ env_var('GCP_LOCATION', 'asia-southeast2') }}"
+      threads: 4
+      timeout_seconds: 300
+      priority: interactive
+      # Jaring pengaman biaya: batalkan query yang memindai
+      # lebih dari ambang ini.
+      #
+      # Nilai 10 GB dipilih dengan perhitungan: raw.trips berukuran ~1,1 GiB,
+      # dan beberapa model memindai tabel itu DUA kali (mis.
+      # int_stations_deduplicated = UNION ALL dua agregasi atas stg_trips),
+      # sehingga query wajar bisa mencapai ~2,5 GB. Limit 2 GB akan
+      # menggagalkan query yang sebenarnya sah.
+      #
+      # 10 GB masih sangat aman: kuota gratis 1 TiB/bulan dihitung per
+      # billing account, sedangkan seluruh pipeline ini hanya memakai
+      # sebagian kecil darinya.
+      #
+      # CATATAN: nilai ini harus berupa INTEGER, bukan string. Menulisnya
+      # sebagai "{{ env_var(...) }}" membuat dbt menolak profil dengan
+      # "'10000000000' is not valid under any of the given schemas".
+      maximum_bytes_billed: 10000000000

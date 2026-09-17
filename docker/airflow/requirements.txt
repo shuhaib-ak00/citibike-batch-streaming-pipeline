@@ -1,0 +1,16 @@
+# ============================================================
+# Dependensi tambahan di atas image Apache Airflow.
+#
+# KENAPA PAKAI FILE CONSTRAINTS AIRFLOW:
+# Airflow & dbt sama-sama mengunci dependency (protobuf, grpcio,
+# jsonschema, ...). Constraint resmi menjamin set versi yang koheren
+# untuk Airflow, sementara dbt diselesaikan di atasnya.
+#
+# CATATAN versi (terverifikasi):
+#   - dbt-bigquery 1.8.x yang benar = 1.8.3 (1.8.9 TIDAK ADA)
+#   - apache-airflow-providers-google sengaja TIDAK di-pin; versinya
+#     diambil dari file constraints agar cocok dengan Airflow 2.9.3.
+# ============================================================
+
+dbt-bigquery==1.8.3
+apache-airflow-providers-google

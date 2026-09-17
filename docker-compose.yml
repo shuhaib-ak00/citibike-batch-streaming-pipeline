@@ -1,0 +1,333 @@
+# ============================================================
+# Citi Bike Pipeline — orkestrasi seluruh service lokal
+#
+#   postgres          : metadata DB Airflow
+#   airflow-init      : migrate DB + buat admin user (sekali jalan)
+#   airflow-webserver : UI Airflow            -> http://localhost:8080
+#   airflow-scheduler : penjadwal DAG
+#   kafka             : broker KRaft (tanpa Zookeeper)
+#   kafka-init        : buat topik snapshot & dlq (sekali jalan)
+#   kafka-ui          : UI inspeksi Kafka     -> http://localhost:8081
+#   metabase-db       : application DB Metabase
+#   metabase          : dashboard            -> http://localhost:3000
+#   streaming-*       : producer/consumer (aktif hanya dgn --profile streaming)
+#
+# Prasyarat: copy `.env.example` -> `.env`, lalu isi nilainya.
+# Jalankan : docker compose up -d --build
+# ============================================================
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/airflow/Dockerfile
+  image: citibike-airflow:local
+  env_file:
+    - .env
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/${POSTGRES_DB:-airflow}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Jakarta
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    # Health server scheduler (port 8974) nonaktif secara default;
+    # dinyalakan agar healthcheck container benar-benar bermakna.
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    # Penting: dbt & modul di dags/common dapat di-import dari container
+    PYTHONPATH: /opt/airflow/dags:/opt/airflow
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/.gcp/service-account.json
+    # Lokasi pemasangan paket dbt (dbt_utils), diatur lewat
+    # `packages-install-path` di dbt/dbt_project.yml.
+    #
+    # Sengaja diarahkan ke /tmp di dalam container, BUKAN ke dbt_packages/ di
+    # dalam bind-mount ./dbt. Direktori repo ini berada di folder tersinkron
+    # OneDrive, dan berkas di dbt_packages/ terbukti HILANG berulang kali
+    # (mis. dbt_utils/dbt_project.yml) sehingga dbt gagal dengan "Failed to
+    # read package: No dbt_project.yml found at expected path".
+    #
+    # Named volume tidak dipakai karena titik mount dimiliki root, sedangkan
+    # container berjalan sebagai UID ${AIRFLOW_UID} — `dbt deps` akan gagal
+    # dengan "PermissionError: [Errno 13]" saat membuat subdirektori.
+    #
+    # Konsekuensinya /tmp bersifat sementara: hilang saat container di-recreate
+    # dan perlu `dbt deps` lagi. Kedua DAG transformasi sudah menjalankannya,
+    # jadi paket memulihkan diri sendiri tanpa langkah manual.
+    DBT_PACKAGES_INSTALL_PATH: /tmp/dbt_packages
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./dbt:/opt/airflow/dbt
+    # Paket dbt dipasang ke /tmp di dalam container — lihat catatan pada
+    # DBT_PACKAGES_INSTALL_PATH di blok environment di atas.
+    - ./streaming:/opt/airflow/streaming:ro
+    - ./data/raw:/opt/airflow/data/raw:ro
+    - ./secrets:/opt/airflow/.gcp:ro
+    - airflow-logs:/opt/airflow/logs
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # ----------------------------------------------------------
+  # Metadata database untuk Airflow
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:15
+    container_name: citibike-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Inisialisasi Airflow (migrate DB + admin user) — sekali jalan
+  # ----------------------------------------------------------
+  airflow-init:
+    <<: *airflow-common
+    container_name: citibike-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+        airflow db migrate
+        airflow users create \
+          --username "${AIRFLOW_ADMIN_USER:-admin}" \
+          --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+        echo ">>> Airflow init selesai."
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: citibike-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: citibike-airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # Triggerer: dibutuhkan operator deferrable (mis. sensor provider Google
+  # dengan deferrable=True). Tanpa ini status "triggerer" di /health null.
+  airflow-triggerer:
+    <<: *airflow-common
+    container_name: citibike-airflow-triggerer
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type TriggererJob --hostname \"$${HOSTNAME}\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Kafka (KRaft — tanpa Zookeeper)
+  #   INTERNAL : kafka:9092      -> dipakai service di dalam compose
+  #   EXTERNAL : localhost:29092 -> untuk debug dari host
+  # ----------------------------------------------------------
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: citibike-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    ports:
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  # Buat topik secara eksplisit (auto-create dimatikan)
+  kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: citibike-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        echo ">>> Membuat topik Kafka..."
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
+          --topic ${KAFKA_TOPIC_STATION_SNAPSHOT:-citibike.station_status.snapshot} \
+          --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
+          --topic ${KAFKA_TOPIC_STATION_DLQ:-citibike.station_status.dlq} \
+          --partitions 1 --replication-factor 1
+        echo ">>> Daftar topik saat ini:"
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+    restart: "no"
+
+  # ----------------------------------------------------------
+  # Kafka UI — inspeksi topik, partisi, lag, dan isi pesan
+  #
+  # Dua hal di bawah sengaja berbeda dari contoh yang umum ditemukan:
+  #
+  # 1. Image memakai fork kafbat, BUKAN provectuslabs/kafka-ui. Proyek
+  #    Provectus sudah diarsipkan; kafbat dikelola kontributor inti yang
+  #    sama dan melanjutkan pengembangannya.
+  # 2. Tag versi di-pin (v1.5.0), bukan :latest, supaya tampilan dan
+  #    perilakunya tidak berubah diam-diam menjelang presentasi.
+  #
+  # Service ini TIDAK di dalam profile, karena Kafka juga selalu aktif dan
+  # lag/isi topik tetap berguna diperiksa walau streaming sedang dimatikan.
+  # ----------------------------------------------------------
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.5.0
+    container_name: citibike-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${KAFKA_UI_PORT:-8081}:8080"
+    environment:
+      # WAJIB listener INTERNAL. Port 29092 adalah listener EXTERNAL untuk
+      # host dan tidak dapat dijangkau dari dalam network Docker.
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_CLUSTERS_0_NAME: citibike-local
+      # "false" = boleh mengirim pesan uji ke topik saat demo.
+      # Setel "true" bila ingin mencegah salah hapus topik.
+      KAFKA_CLUSTERS_0_READONLY: "false"
+    healthcheck:
+      # curl tidak ada di image ini (basis Alpine) — wget tersedia.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      # Boot JVM jauh lebih lambat daripada service lain.
+      start_period: 90s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Streaming (aktifkan dengan: docker compose --profile streaming up -d)
+  # ----------------------------------------------------------
+  streaming-producer:
+    build:
+      context: .
+      dockerfile: docker/streaming/Dockerfile
+    image: citibike-streaming:local
+    container_name: citibike-streaming-producer
+    profiles: ["streaming"]
+    env_file:
+      - .env
+    environment:
+      ROLE: producer
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/app/.gcp/service-account.json
+    volumes:
+      - ./streaming:/opt/app/streaming
+      - ./secrets:/opt/app/.gcp:ro
+      - ./data/reference:/opt/app/data/reference
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  streaming-consumer:
+    build:
+      context: .
+      dockerfile: docker/streaming/Dockerfile
+    image: citibike-streaming:local
+    container_name: citibike-streaming-consumer
+    profiles: ["streaming"]
+    env_file:
+      - .env
+    environment:
+      ROLE: consumer
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/app/.gcp/service-account.json
+    volumes:
+      - ./streaming:/opt/app/streaming
+      - ./secrets:/opt/app/.gcp:ro
+      - ./data/reference:/opt/app/data/reference
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Metabase (dashboard)
+  # ----------------------------------------------------------
+  metabase-db:
+    image: postgres:15
+    container_name: citibike-metabase-db
+    environment:
+      POSTGRES_USER: metabase
+      POSTGRES_PASSWORD: metabase
+      POSTGRES_DB: metabase
+    volumes:
+      - metabase-db:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: citibike-metabase
+    depends_on:
+      - metabase-db
+    ports:
+      - "3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: metabase
+      MB_DB_PASS: metabase
+      MB_DB_HOST: metabase-db
+    restart: unless-stopped
+
+volumes:
+  postgres-db:
+  kafka-data:
+  metabase-db:
+  airflow-logs:

@@ -1,0 +1,99 @@
+# ============================================================
+# Project dbt: staging -> intermediate -> marts (core & dashboard)
+#
+# Dataset per layer disusun oleh macro generate_schema_name.
+# Contoh bila BQ_DATASET_DBT=shuhaib_citibike:
+#   shuhaib_citibike_staging | shuhaib_citibike_intermediate
+#   shuhaib_citibike_marts   | shuhaib_citibike_dashboard
+#
+# Materialisasi dipilih untuk menekan biaya query:
+#   staging/intermediate/dashboard = view, marts/core = table.
+#
+# Tag dipakai oleh DAG Airflow: `dbt run --select tag:staging` dsb.
+# ============================================================
+
+name: citibike
+version: "1.0.0"
+config-version: 2
+
+profile: citibike
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+docs-paths: ["docs"]
+target-path: "target"
+
+# Lokasi pemasangan paket dbt (dbt_utils).
+#
+# Default `dbt_packages` adalah perilaku normal saat dbt dijalankan dari host.
+# Container Airflow menimpanya lewat environment variable
+# `DBT_PACKAGES_INSTALL_PATH` ke /tmp di dalam container.
+#
+# Alasannya: direktori repo ini berada di folder tersinkron OneDrive, dan
+# berkas di dalam `dbt_packages/` terbukti HILANG berulang kali (mis.
+# `dbt_utils/dbt_project.yml`), sehingga dbt gagal dengan "Failed to read
+# package: No dbt_project.yml found at expected path" padahal beberapa menit
+# sebelumnya berkas itu ada.
+#
+# Diatur di sini, bukan lewat flag CLI, karena `dbt deps` DAN `dbt run`
+# sama-sama TIDAK menerima `--packages-install-path` di dbt-core 1.8.7.
+packages-install-path: "{{ env_var('DBT_PACKAGES_INSTALL_PATH', 'dbt_packages') }}"
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  citibike:
+    staging:
+      +materialized: view
+      +schema: staging
+      +tags: ["staging"]
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+      +tags: ["intermediate"]
+    marts:
+      +tags: ["marts"]
+      core:
+        +materialized: table
+        +schema: marts
+        +tags: ["marts", "core"]
+      dashboard:
+        +materialized: view
+        +schema: dashboard
+        +tags: ["marts", "dashboard"]
+
+vars:
+  # Ambang celah data pada validity window streaming (menit).
+  #
+  # Interval yang jauh lebih panjang daripada siklus polling (~90 detik)
+  # kemungkinan besar menandakan ada data yang TIDAK terkumpul pada rentang
+  # itu — bukan stasiun yang benar-benar tidak berubah. Tanpa penanda ini,
+  # matinya streaming selama berjam-jam akan terbaca sebagai "stasiun
+  # kosong 66 jam", yang menyesatkan.
+  # Terverifikasi: dengan ambang ini, 3.964 menit yang semula tampak
+  # sebagai dwell time terpanjang ternyata artefak celah data.
+  streaming_gap_threshold_minutes: 10
+
+  # Ambang alert lonjakan karantina: proporsi baris rejected dalam satu
+  # batch/polling di atas nilai ini dianggap masalah sistemik.
+  quarantine_alert_threshold_pct: 5.0
+  # Durasi trip maksimum yang dianggap wajar (detik).
+  max_trip_duration_seconds: 86400
+  # Bounding box NYC (validasi koordinat)
+  nyc_lat_min: 40.47
+  nyc_lat_max: 40.92
+  nyc_lng_min: -74.27
+  nyc_lng_max: -73.60
+
+  # ----- Ambang risiko ketersediaan stasiun (streaming) -----
+  # Dikalibrasi dari distribusi data nyata (111 snapshot, 249 ribu baris):
+  #   p25 = 21%, p50 = 48%, p75 = 74%
+  # Ambang 20/80 membagi data menjadi low 24% / normal 57% / high 19% —
+  # proporsional, sehingga sinyalnya berguna tanpa membanjiri tim ops.
+  station_low_occupancy_pct: 20.0
+  station_high_occupancy_pct: 80.0
+  # last_reported yang lebih tua dari ini dianggap tidak segar (menit).
+  station_freshness_threshold_minutes: 10
