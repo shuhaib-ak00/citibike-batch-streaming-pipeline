@@ -41,6 +41,8 @@ from common.alert_utils import (
 )
 from common.config import (
     TABLE_DQ_METRICS,
+    TABLE_STAGING_STATION_STATUS,
+    TABLE_STAGING_STATION_STATUS_REJECTED,
     TABLE_STAGING_TRIPS,
     TABLE_STAGING_TRIPS_REJECTED,
 )

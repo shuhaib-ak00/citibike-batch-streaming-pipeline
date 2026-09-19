@@ -11,11 +11,16 @@
 --   riwayat trip), dan `PARTITION BY` kolom ber-NULL menaruh semua NULL dalam
 --   SATU partisi -- LAG() lalu membandingkan stasiun yang berbeda.
 --
--- - Wajib ada BENIH dari snapshot di batas pemrosesan terakhir. `LAG()` hanya
---   melihat baris di dataset input, jadi tanpa benih baris pertama tiap batch
---   dianggap "stasiun baru" (~2.500 event op='c' palsu per rotasi). Benih
---   diambil per-snapshot, bukan per-stasiun, agar stasiun yang belum pernah
---   berubah tetap tercakup.
+-- - Wajib ada BENIH: keadaan terakhir tiap stasiun sebelum batch ini. `LAG()`
+--   hanya melihat baris di dataset input, jadi tanpa benih baris pertama tiap
+--   batch dianggap "stasiun baru" (~2.450 event op='c' palsu per run).
+--
+--   Benih diambil PER-STASIUN dari {{ this }}, BUKAN dari satu snapshot di
+--   fct_station_status. Alasannya: snapshot di batas pemrosesan bisa tidak
+--   lengkap -- terverifikasi pernah kehilangan beberapa stasiun, dan justru
+--   stasiun itulah yang lalu mendapat op='c' palsu. Mengambil per-stasiun
+--   tidak peduli snapshot mana yang lengkap, dan tidak lagi bergantung pada
+--   fct_station_status sama sekali.
 --
 -- - `insert_overwrite` + `copy_partitions=True`. Adapter BigQuery hanya
 --   menerima 'merge' dan 'insert_overwrite'; `merge` memindai ~130 MiB per run
@@ -25,8 +30,9 @@
 -- - Idempotensi bergantung pada filter `snapshot_timestamp > batas`, bukan
 --   kunci unik. Duplikat ditangkap test unique_combination_of_columns.
 --
--- - Test `assert_station_status_changes_single_create` menangkap benih kosong,
---   mis. bila snapshot batas sudah terhapus retensi.
+-- - Test `assert_station_status_changes_single_create` menjaga invariant satu
+--   op='c' per stasiun. Bila gagal, jalankan `--full-refresh` sekali: baris
+--   palsu yang sudah tersimpan tidak bisa dihapus oleh perbaikan benih.
 --
 -- Grain: 1 baris per PERUBAHAN per stasiun.
 -- ============================================================
@@ -40,36 +46,40 @@
 ) }}
 
 -- ------------------------------------------------------------------
--- Benih: keadaan seluruh stasiun pada snapshot batas pemrosesan.
--- Hanya diperlukan saat run incremental; pada run pertama semua baris
--- memang baru, sehingga `bikes_sebelumnya` boleh NULL.
+-- Benih: keadaan terakhir yang DIKETAHUI untuk tiap stasiun.
+--
+-- Hanya diperlukan saat run incremental; pada run pertama belum ada
+-- keadaan sebelumnya, sehingga `bikes_sebelumnya` boleh NULL.
 -- ------------------------------------------------------------------
 WITH arsip AS (
     {% if is_incremental() %}
     SELECT
         gbfs_station_id,
-        snapshot_timestamp,
-        num_bikes_available,
-        num_docks_available,
+        valid_from                                  AS snapshot_timestamp,
+        -- Delta hanya menyimpan perubahan, jadi baris terakhir tiap stasiun
+        -- = keadaan terkini stasiun itu. Kolom *_after dipetakan kembali ke
+        -- nama kolom asalnya.
+        bikes_after                                 AS num_bikes_available,
+        docks_after                                 AS num_docks_available,
         num_ebikes_available,
         num_scooters_available,
         is_installed,
         is_renting,
         is_returning,
         is_disabled,
-        -- Kolom metadata dibiarkan NULL pada benih: ia hanya dipakai agar
-        -- LAG punya pendahulu, dan barisnya tidak ikut tersimpan.
-        CAST(NULL AS STRING)    AS station_key,
-        CAST(NULL AS STRING)    AS legacy_station_id,
-        CAST(NULL AS STRING)    AS station_name,
-        CAST(NULL AS STRING)    AS risk_level,
-        CAST(NULL AS BOOL)      AS is_operational,
-        CAST(NULL AS BOOL)      AS is_unknown_station,
-        CAST(NULL AS TIMESTAMP) AS last_reported,
-        CAST(NULL AS INT64)     AS report_age_seconds,
-        FALSE                   AS _baru
-    FROM {{ ref('fct_station_status') }}
-    WHERE snapshot_timestamp = (SELECT MAX(valid_from) FROM {{ this }})
+        station_key,
+        legacy_station_id,
+        station_name,
+        risk_level,
+        is_operational,
+        is_unknown_station,
+        last_reported,
+        report_age_seconds,
+        FALSE                                       AS _baru
+    FROM {{ this }}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY gbfs_station_id ORDER BY valid_from DESC
+    ) = 1
     {% else %}
     SELECT
         CAST(NULL AS STRING)    AS gbfs_station_id,

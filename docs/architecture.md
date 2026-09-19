@@ -1,7 +1,7 @@
 # Arsitektur Pipeline Citi Bike
 
-Dokumen ini merangkum desain arsitektur yang dipakai pada project.
-Acuan utama: `Project_Brief_CitiBike_Pipeline.md` §7 (arsitektur) dan §11 (deliverables).
+Dokumen ini merangkum desain arsitektur yang dipakai pada project, beserta
+keputusan teknis dan bukti angka di baliknya.
 
 ---
 
@@ -70,7 +70,7 @@ flowchart TD
 | Layer | Dataset | Materialisasi | Karakteristik |
 |---|---|---|---|
 | Raw | `shuhaib_citibike_raw.trips`, `...station_status` | Table (partition + cluster) | Tanpa transformasi bisnis |
-| Staging | `shuhaib_citibike_staging.stg_trips` | View | DQ check di sini (§8) |
+| Staging | `shuhaib_citibike_staging.stg_trips` | View | DQ check di sini (§5) |
 | Intermediate | `shuhaib_citibike_intermediate.int_*` | View | Belum final, logika bersama |
 | Marts/Core | `shuhaib_citibike_marts.fct_trips`, `dim_station` | Table | Grain final |
 | Marts/Dashboard | `shuhaib_citibike_dashboard.station_risk_monitoring` | View | Siap untuk BI |
@@ -223,7 +223,6 @@ Tiga pola penanganan beserta retensinya ada di
 
 ### 5.1 Normalisasi station_id (konsistensi lintas era data)
 
-Brief §8.1 meminta pengecekan "Konsistensi `station_id` lintas era data".
 Saat verifikasi marts ditemukan **65 stasiun** yang tercatat dengan dua
 `station_id` karena perbedaan gaya penulisan digit terakhir:
 
@@ -249,7 +248,7 @@ inilah yang menjaga agar stasiun yang memang terpisah tidak ikut tergabung:
 | `7625.18` vs `7625.22` (E 118 St & Park Ave) | berbeda | dibiarkan terpisah |
 | `8381.04` vs `8421.03` (W 181 St & Riverside Dr) | berbeda | dibiarkan terpisah |
 
-Hasil: 2.352 `station_id` di sumber → **2.287 id kanonik**. Dijaga oleh
+Hasil: 2.352 `station_id` di sumber → **2.285 id kanonik**. Dijaga oleh
 uji singular `assert_no_phantom_station_ids.sql`.
 
 > Efek sampingnya positif untuk analisis: nilai `net_flow` ekstrem turun
@@ -461,25 +460,43 @@ menghasilkan data yang **salah** sebelum diperbaiki:
 
 **1. Kunci diff wajib `gbfs_station_id`, bukan `station_key`.**
 
-Di `fct_station_status`, `station_key` bernilai NULL untuk 82.531 baris
-(9,9%) — stasiun yang ada di feed GBFS tetapi tidak punya riwayat trip
-(`is_unknown_station = TRUE`). Seluruh baris itu masuk ke **satu** partisi
-`LAG()`, sehingga perubahan antar stasiun berbeda tercampur.
-Terverifikasi: 82.183 dari 139.582 baris (59%) salah karena sebab ini.
+Di `fct_station_status`, `station_key` bernilai NULL untuk sekitar 9,9%
+baris (93.751 baris pada potret 2026-09-18) — stasiun yang ada di feed GBFS
+tetapi tidak punya riwayat trip (`is_unknown_station = TRUE`). Seluruh baris
+itu masuk ke **satu** partisi `LAG()`, sehingga perubahan antar stasiun
+berbeda tercampur. Terverifikasi saat itu: 82.183 dari 139.582 baris (59%)
+salah karena sebab ini.
 
-`gbfs_station_id` tidak pernah NULL (0 baris, 2.450 nilai unik).
+`gbfs_station_id` tidak pernah NULL (0 baris, 2.454 nilai unik pada potret
+2026-09-18).
 
 Ini menegaskan peran `dim_station` sebagai jembatan antar ruang id:
 `station_key` adalah kunci untuk bergabung ke dimensi, sedangkan
 `gbfs_station_id` adalah identitas stasiun itu sendiri.
 
-**2. Benih (seed) diperlukan agar rotasi tidak menghasilkan event palsu.**
+**2. Benih (seed) wajib, dan wajib PER-STASIUN.**
 
 `LAG()` hanya melihat baris di dalam dataset input. Tanpa benih, baris
 pertama tiap batch tidak punya pendahulu sehingga dianggap "stasiun baru" —
-dan setiap rotasi menghasilkan ~2.450 event `op='c'` palsu. Benihnya diambil
-dari **satu snapshot di batas pemrosesan terakhir**, bukan per stasiun, agar
-stasiun yang belum pernah berubah ikut tercakup.
+dan setiap rotasi menghasilkan ~2.450 event `op='c'` palsu.
+
+Percobaan pertama mengambil benih dari **satu snapshot di batas pemrosesan
+terakhir**. Cara itu gagal: snapshot batas tidak selalu lengkap —
+terverifikasi hanya memuat 2.447 stasiun dan 3 stasiun absen di dalamnya.
+Stasiun yang absen jadi tidak punya pendahulu, sehingga dicatat sebagai
+`op='c'` palsu. Terbukti: 3 stasiun punya `op='c'` ganda.
+
+Benih sekarang diambil **per stasiun** dari tabel tujuan itu sendiri:
+
+```sql
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY gbfs_station_id ORDER BY valid_from DESC
+) = 1
+```
+
+Keuntungannya berlipat: model tidak lagi bergantung pada `fct_station_status`
+sama sekali, sehingga kebal terhadap snapshot yang tidak lengkap **maupun**
+snapshot batas yang sudah terhapus retensi.
 
 **3. `copy_partitions=True` wajib.**
 
@@ -500,14 +517,31 @@ sejak CTE sumber, biaya per run turun:
 
 ### 8.4 Angka nyata
 
+Potret **2026-09-18**.
+
 | Metrik | Nilai |
 |---|---|
-| Rasio perubahan | **7,26%** (60.807 dari 837.683 baris) |
-| Stasiun tercakup | 2.450 |
-| `op='c'` | 2.450 (= jumlah stasiun, konsisten) |
-| `op='u'` | 58.357 |
-| Interval ditandai celah data | 24.063 (39,6%) |
+| Rasio perubahan | **6,9%** (65.300 dari 950.321 baris) |
+| Stasiun tercakup | 2.448 |
+| `op='c'` | 2.447 |
+| `op='u'` | 62.853 |
+| Interval ditandai celah data | 25.886 (39,6%) |
 | Dwell time (setelah celah disaring) | median **1 menit**, p90 7 menit, maks 10 menit |
+
+> **Angka ini bergerak.** Arsip bertambah selama streaming berjalan, jadi
+> jumlah baris dan rasionya berubah setiap kali consumer menulis snapshot.
+> Yang stabil hanyalah bentuknya: rasio perubahan tetap di kisaran 7%, dan
+> proporsi interval bertanda celah tetap sekitar 39,6%.
+
+> ⚠️ **Invarian lama tidak lagi persis berlaku.** Semula `op='c'` selalu sama
+> dengan jumlah stasiun, dan kesamaan itu dipakai sebagai tanda model sehat.
+> Pada potret ini selisihnya satu: 2.447 `op='c'` untuk 2.448 stasiun. Satu
+> stasiun (`gbfs_station_id` 1826348248869574940) punya dua baris tetapi
+> keduanya `op='u'`, sehingga tidak ada baris `op='c'`-nya. Dugaannya window
+> yang sama diproses dua kali, sehingga benih per-stasiun sudah memuat stasiun
+> itu sendiri dan baris `op='c'` pertamanya tertimpa — **belum terbukti**.
+> Yang sudah pasti: `assert_station_status_changes_single_create` hanya
+> menangkap `op='c'` **ganda**, tidak menangkap `op='c'` yang **hilang**.
 
 ### 8.5 Batas yang perlu disadari
 

@@ -6,7 +6,7 @@
 -- Materialized table, bukan view, karena chart ini di-auto-refresh tiap menit.
 -- Sebagai view, setiap refresh akan memindai partisi hari ini (~240 MB) dan
 -- 1.440 refresh/hari menghabiskan kuota query 1 TiB/bulan dalam ~3 hari.
--- Sebagai table ~2.500 baris (~250 KB), biaya pemindaiannya turun ~1000x
+-- Sebagai table ~2.450 baris (~0,5 MB), biaya pemindaiannya turun ~1000x
 -- sehingga auto-refresh aman dinyalakan terus.
 --
 -- Kolom risk_* dipakai mewarnai peta supaya tim ops bisa melihat sebaran

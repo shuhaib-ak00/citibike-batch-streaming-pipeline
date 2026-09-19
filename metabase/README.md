@@ -47,7 +47,7 @@ Chart 5–7 perlu terlihat "hidup" saat demo, jadi butuh auto-refresh.
 3. Simpan.
 
 Ini aman dari sisi biaya karena mart streaming dimaterialisasi sebagai
-**table** berisi ±2.500 baris, bukan view yang memindai riwayat. Rincian
+**table** berisi ±2.400 baris, bukan view yang memindai riwayat. Rincian
 perhitungannya ada di [`dashboard_streaming.md`](dashboard_streaming.md).
 
 > ⚠️ Bila kelak mart streaming diubah menjadi view, biaya query akan

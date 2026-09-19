@@ -68,7 +68,7 @@ docs/          architecture.md · erd.md · runbook.md
 | Sumber | Tipe | Volume |
 |---|---|---|
 | Trip history (CSV bulanan) | Batch | 5.981.588 trip (Jan–Mar 2026) |
-| GBFS `station_status` | Streaming ~90 detik | ~2.500 baris per snapshot |
+| GBFS `station_status` | Streaming ~90 detik | ~2.450 baris per snapshot (bila penulisannya tidak terpotong) |
 | GBFS `station_information` | Referensi harian | 2.506 stasiun |
 
 **Catatan pemilihan data.** Jan–Mar dipilih karena volume terkecil dalam
@@ -194,17 +194,31 @@ Ambang dan pembatas alert diatur lewat variabel lingkungan di `.env`
 
 ## Hasil Verifikasi
 
-| Metrik | Nilai |
-|---|---|
-| Trip di raw layer | 5.981.588 |
-| Trip valid (`fct_trips`) | 5.952.072 (99,51%) |
-| Trip dikarantina | 29.516 (0,49%) |
-| Stasiun (`dim_station`) | 2.285 id kanonik |
-| `fct_station_status` | 837.683 baris |
-| `int_station_status_changes` | 60.807 baris (7,26% dari fct) |
-| `dbt test` | **119 lulus, 0 gagal** |
-| Kafka consumer lag | 0 |
-| Watchdog streaming | 4/4 pemeriksaan sehat |
+Potret **2026-09-18** dari project `jcdeah-009`.
+
+| Metrik | Nilai | Sifat |
+|---|---|---|
+| Trip di raw layer | 5.981.588 | Tetap |
+| Trip valid (`fct_trips`) | 5.952.072 (99,51%) | Tetap |
+| Trip dikarantina | 29.516 (0,49%) | Tetap |
+| Stasiun (`dim_station`) | 2.285 id kanonik | Tetap |
+| `dim_date` | 269 hari (buffer 7 hari) | Bertambah tiap hari |
+| `fct_station_status` | 950.321 baris (485 snapshot) | Bertambah saat streaming hidup |
+| `int_station_status_changes` | 65.300 baris (6,9% dari fct) | Bertambah saat streaming hidup |
+| `dbt test` | **119 lulus, 0 gagal** | Terakhir dijalankan sebelum penambahan lapisan CDC |
+| Kafka consumer lag | 0 | Diukur saat streaming berjalan |
+| Watchdog streaming | 4/4 pemeriksaan sehat | Diukur saat streaming berjalan |
+
+> **Kenapa sebagian angka bergerak.** Empat baris teratas berasal dari riwayat
+> trip yang sudah final, jadi nilainya tetap. Sisanya berasal dari streaming:
+> `fct_station_status` dan arsip perubahan bertambah setiap kali consumer
+> menulis snapshot, sedangkan `dim_date` mengikuti tanggal berjalan. Angka di
+> tabel ini karena itu **potret satu waktu**, bukan konstanta — jangan dipakai
+> sebagai patokan yang harus selalu cocok.
+>
+> **Streaming sedang dimatikan sengaja** untuk menekan pemakaian kuota GCS &
+> BigQuery. Dua baris terakhir merujuk keadaan terakhir saat streaming hidup,
+> bukan keadaan sekarang.
 
 ## Dokumentasi
 

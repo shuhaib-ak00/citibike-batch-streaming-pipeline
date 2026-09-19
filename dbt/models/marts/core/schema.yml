@@ -7,8 +7,10 @@ models:
       riwayat trip (mis. '5343.10') dan id GBFS dari station_information
       (UUID atau angka besar). Keduanya dihubungkan lewat kolom `short_name`
       GBFS yang berisi id legacy tersebut.
-      Capacity terisi untuk 98,3% stasiun; sisanya (38 stasiun) sudah tidak
-      ada di feed GBFS sehingga dibiarkan NULL — karena itu `capacity` tidak
+      Capacity terisi untuk 97,2% stasiun (2.221 dari 2.285). NULL pada 64
+      stasiun berasal dari dua sebab: 38 stasiun sudah tidak ada di feed GBFS,
+      dan 26 stasiun dilaporkan GBFS berkapasitas 0 — nol diperlakukan sebagai
+      "tidak diketahui", bukan kapasitas nol. Karena itu `capacity` tidak
       diuji not_null, melainkan ditandai lewat `has_capacity_info`.
     columns:
       - name: station_key

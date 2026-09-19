@@ -5,7 +5,8 @@
 --
 -- Periodic snapshot, bukan transaction fact seperti fct_trips: setiap polling
 -- merekam kondisi SELURUH stasiun, bukan hanya yang berubah. Tabelnya tumbuh
--- cepat (~2.500 baris/90 detik) tetapi selalu memberi gambaran lengkap.
+-- cepat (~2.450 baris per snapshot bila penulisannya tidak terpotong) tetapi
+-- selalu memberi gambaran lengkap.
 --
 -- Agregasi (rata-rata hunian per jam, durasi kondisi berisiko) dilakukan dengan
 -- GROUP BY bucket waktu, bukan validity window.

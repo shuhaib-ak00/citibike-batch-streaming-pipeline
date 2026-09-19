@@ -389,9 +389,20 @@ pada percobaan kedua log akan memuat `ditahan (dedup ...)`.
 
 ## 9. Status verifikasi
 
-`dbt test` **119/119 lulus** (PASS=119, WARN=0, ERROR=0). Rekonsiliasi
-`raw = valid + rejected` dan `fct_trips = valid` keduanya seimbang. Streaming
-berjalan dengan Kafka lag 0, dan watchdog melaporkan keempat pemeriksaan sehat.
+Potret **2026-09-18** dari project `jcdeah-009`.
+
+`dbt test` **119/119 lulus** (PASS=119, WARN=0, ERROR=0) — dijalankan sebelum
+lapisan CDC ditambahkan dan belum diulang sejak data bertambah. Rekonsiliasi
+`raw = valid + rejected` dan `fct_trips = valid` **diverifikasi ulang pada
+potret ini dan keduanya seimbang**: 5.981.588 = 5.952.072 + 29.516.
+
+Streaming berjalan dengan Kafka lag 0 dan watchdog melaporkan keempat
+pemeriksaan sehat — keduanya diukur **saat streaming hidup**. Streaming kini
+dimatikan sengaja untuk menekan kuota, jadi angka itu bukan keadaan sekarang.
 
 Watchdog pipeline juga terbukti melaporkan DAG-run gagal beserta daftar
 task-nya.
+
+> Angka yang berasal dari streaming (`fct_station_status`, arsip perubahan,
+> `dim_date`) bertambah terus dan **tidak boleh dipatok**. Rinciannya di
+> [`erd.md`](./erd.md) §8.

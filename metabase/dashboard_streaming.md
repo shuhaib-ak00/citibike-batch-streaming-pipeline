@@ -3,7 +3,7 @@
 Resep langkah demi langkah untuk chart **streaming**. Melengkapi
 [`dashboard_batch.md`](dashboard_batch.md) yang membahas chart batch.
 
-**Sumber data:** dataset `citibike_dashboard` (hasil dbt).
+**Sumber data:** dataset `shuhaib_citibike_dashboard` (hasil dbt).
 Ketiga mart di sini adalah **tabel** (bukan view), dengan alasan yang dijelaskan
 di bagian [Auto-refresh](#auto-refresh-kenapa-murah).
 
@@ -20,7 +20,7 @@ Karena itu dua hal disiapkan khusus:
 
 | Kebutuhan | Solusi |
 |---|---|
-| Auto-refresh tiap menit tapi murah | Mart dimaterialisasi sebagai **table** berisi ±2.500 baris, bukan view yang memindai ±240 MB per refresh |
+| Auto-refresh tiap menit tapi murah | Mart dimaterialisasi sebagai **table** berisi ±2.400 baris, bukan view yang memindai ±240 MB per refresh |
 | Kondisi "terkini" yang tidak menyesatkan | Mart memakai **snapshot terakhir yang lengkap**, bukan snapshot terakhir begitu saja (lihat catatan di bawah) |
 
 > **Catatan penting soal "snapshot terakhir".** Penulisan consumer dapat

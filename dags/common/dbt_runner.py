@@ -83,7 +83,7 @@ def dbt_task(
     full_refresh: bool = False,
     extra: str = "",
     target_path: str = "",
-    retries: int = 1,
+    retries: int = 0,
     retry_delay_minutes: int = 3,
     **kwargs,
 ) -> BashOperator:
