@@ -184,7 +184,7 @@ docker compose --profile streaming start streaming-consumer
 > Dua detail hasil pengukuran, supaya tidak dikira UI-nya rusak:
 >
 > - Setelah 1 siklus (90 detik), lag tepat sebesar jumlah stasiun pada
->   snapshot itu (±2.519) — karena 1 stasiun = 1 pesan.
+>   snapshot itu (±2.520) — karena 1 stasiun = 1 pesan.
 > - Setelah consumer dinyalakan lagi, lag **belum langsung** turun ke 0.
 >   Consumer menahan buffer sampai idle 30 detik (`CONSUMER_FLUSH_SECONDS`)
 >   sebelum menulis dan memajukan offset — jadi tunggu ±30-40 detik.
@@ -283,8 +283,9 @@ unpaused setelah clone segar.
 ### Lapisan CDC (perubahan stasiun)
 
 Arsip perubahan disimpan di `int_station_status_changes`, dengan validity
-window di `int_station_status_windows`. Rincian desainnya di
-[`architecture.md`](./architecture.md) §8.
+window di `int_station_status_windows`. Gambaran alurnya di
+[`architecture.md`](./architecture.md) §3.3; rincian kolomnya di
+[`erd.md`](./erd.md) §9.3.
 
 Query dwell time — **berhasil mengukur berapa lama sebuah stasiun bertahan
 dalam suatu kondisi**, yang tidak bisa dijawab periodic snapshot murni:
@@ -330,7 +331,8 @@ docker compose exec -T airflow-scheduler airflow dags trigger citibike_retention
 Versi manualnya ada di `sql/bigquery/03_retention.sql`. Perhatikan: tabel
 karantina dbt **tidak** dibersihkan, karena keduanya view — `DELETE`
 terhadapnya gagal dengan "not allowed for this operation because it
-currently has type VIEW". Lihat `architecture.md` §6.5.
+currently has type VIEW". Yang dipangkas hanya `raw.station_status` dan
+`raw.station_status_dlq`; lihat `architecture.md` §8.
 
 ### Menyesuaikan kepekaan alert
 
@@ -376,7 +378,7 @@ pada percobaan kedua log akan memuat `ditahan (dedup ...)`.
 | Airflow UI tidak bisa dibuka | `airflow-init` belum selesai | `docker compose logs airflow-init` |
 | DAG tidak muncul di UI | error import di `dags/` | `docker compose exec airflow-scheduler airflow dags list-import-errors` |
 | DAG terjadwal tidak pernah jalan | DAG ter-pause; DAG ber-jadwal Dataset gagal **tanpa error apa pun** | cek `airflow dags list -o plain`, pastikan `is_paused_upon_creation=False` lalu `airflow dags unpause <dag_id>` |
-| Alert terpasang tetapi tidak pernah berbunyi | `on_failure_callback` tingkat DAG gagal karena `NotFullyPopulated` pada DAG ber-dynamic task mapping | jangan pakai callback tingkat DAG; pakai `citibike_watchdog_pipeline` (lihat `architecture.md` §6.3) |
+| Alert terpasang tetapi tidak pernah berbunyi | `on_failure_callback` tingkat DAG gagal karena `NotFullyPopulated` pada DAG ber-dynamic task mapping | jangan pakai callback tingkat DAG; pakai `citibike_watchdog_pipeline` (lihat `architecture.md` §6) |
 | Alert sama terkirim berkali-kali | kunci dedup berbeda per task | cek `ALERT_BURST_MAX_ALERTS` dan `ALERT_DEDUP_WINDOW_SECONDS` |
 | Perubahan `.env` tidak berpengaruh | variabel lingkungan hanya dibaca saat container dibuat | `docker compose up -d` (recreate), bukan `restart` |
 | `DELETE` ke tabel dbt gagal: "has type VIEW" | model staging bermaterialisasi view, jadi tidak bisa di-DELETE | hapus perintah DELETE-nya; view tidak menyimpan data |
@@ -389,12 +391,13 @@ pada percobaan kedua log akan memuat `ditahan (dedup ...)`.
 
 ## 9. Status verifikasi
 
-Potret **2026-09-18** dari project `jcdeah-009`.
+Potret **2026-09-20** dari project `jcdeah-009`.
 
-`dbt test` **119/119 lulus** (PASS=119, WARN=0, ERROR=0) — dijalankan sebelum
-lapisan CDC ditambahkan dan belum diulang sejak data bertambah. Rekonsiliasi
-`raw = valid + rejected` dan `fct_trips = valid` **diverifikasi ulang pada
-potret ini dan keduanya seimbang**: 5.981.588 = 5.952.072 + 29.516.
+`dbt test` **125/125 lulus** (PASS=125, WARN=0, ERROR=0) — dijalankan ulang
+setelah lapisan CDC ditambahkan **dan** setelah strategi incremental arsip
+diganti ke `merge`. Rekonsiliasi `raw = valid + rejected` dan
+`fct_trips = valid` **diverifikasi ulang pada potret ini dan keduanya
+seimbang**: 5.981.588 = 5.952.072 + 29.516.
 
 Streaming berjalan dengan Kafka lag 0 dan watchdog melaporkan keempat
 pemeriksaan sehat — keduanya diukur **saat streaming hidup**. Streaming kini

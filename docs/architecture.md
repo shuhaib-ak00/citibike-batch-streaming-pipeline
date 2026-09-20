@@ -1,565 +1,305 @@
 # Arsitektur Pipeline Citi Bike
 
-Dokumen ini merangkum desain arsitektur yang dipakai pada project, beserta
-keputusan teknis dan bukti angka di baliknya.
+Dokumen ini menjelaskan **bentuk arsitektur** dan alasan di balik keputusan
+utamanya. Satu alur dibahas dalam satu bagian, ditutup dengan batas yang perlu
+disadari.
+
+| Ingin tahu lebih dalam | Lihat |
+|---|---|
+| Relasi & kolom setiap tabel | [`erd.md`](./erd.md) |
+| Cara menjalankan & menangani masalah | [`runbook.md`](./runbook.md) |
 
 ---
 
 ## 1. Gambaran End-to-End
 
+Ada **dua alur** karena sumber datanya dua sifat: riwayat trip terbit sebagai
+berkas bulanan, sedangkan status stasiun berubah terus-menerus.
+
 ```mermaid
 flowchart LR
-    subgraph SRC["Sumber Data"]
+    subgraph SRC["Sumber"]
         CSV["Citi Bike Trip History<br/>CSV bulanan"]
-        GBFS["GBFS station_status.json<br/>polling 60-120 dtk"]
-        GBFSI["GBFS station_information.json<br/>semi-statis"]
+        API["GBFS station_status<br/>berubah tiap menit"]
+        INFO["GBFS station_information<br/>semi-statis"]
     end
 
-    subgraph BATCH["Batch Pipeline (Airflow)"]
-        VENV["Airflow Self-Host"]
-        ING["Ingestion DAG<br/>bulanan -> harian"]
-        DBT["dbt"]
+    subgraph AIR["Airflow"]
+        ING["Ingestion DAG"]
+        DBT["dbt<br/>transformasi"]
     end
 
-    subgraph STREAM["Streaming Pipeline (Kafka)"]
-        PROD["Producer<br/>GBFS poller"]
-        TOPIC["Topic<br/>citibike.station_status.snapshot"]
-        DLQ["Topic .dlq"]
-        CONS["Consumer<br/>snapshot writer"]
+    subgraph STR["Streaming"]
+        P["Producer"]
+        K["Kafka"]
+        C["Consumer"]
     end
 
-    subgraph GCP["GCP"]
-        GCS["GCS Datalake<br/>raw/"]
-        BQ["BigQuery"]
-    end
-
-    MB["Metabase<br/>Dashboard"]
+    GCS["GCS<br/>datalake"]
+    BQ["BigQuery<br/>warehouse"]
+    MB["Metabase<br/>dashboard"]
 
     CSV --> ING
-    GBFSI --> ING
-    ING --> GCS
-    GCS --> BQ
-    BQ --> DBT
-    DBT --> BQ
+    INFO --> ING
+    ING --> GCS --> BQ
 
-    GBFS --> PROD --> TOPIC --> CONS
-    PROD -. payload rusak .-> DLQ
-    CONS --> GCS
-    CONS --> BQ
+    API --> P --> K --> C --> BQ
+    C --> GCS
 
+    BQ -->|"baca"| DBT
+    DBT -->|"tulis"| BQ
     BQ --> MB
-    VENV -. monitoring .-> PROD
-    VENV -. watchdog freshness .-> BQ
 ```
+
+**Kedua alur bertemu di BigQuery.** Batch mengisi tabel trip, streaming
+mengisi tabel status stasiun, dan keduanya diproses memakai tool transformasi
+yang sama sehingga definisi metriknya tidak bercabang.
 
 ---
 
-## 2. Layer Data (medallion)
+## 2. Kenapa Dua Alur, Bukan Satu
+
+| | Batch | Streaming |
+|---|---|---|
+| Sumber | CSV bulanan | REST API yang di-poll |
+| Sifat data | Historis, sudah lengkap | Terus berubah |
+| Pemicu | Berkas baru tersedia | Selang waktu (polling) |
+| Cadangan bila mati | Tidak masalah — bisa diulang | Data yang lewat hilang permanen |
+
+Perbedaan yang terakhir itu yang menentukan desainnya. Berkas CSV bisa
+di-ingest ulang kapan saja, sedangkan satu snapshot status stasiun hanya
+berlaku pada saat itu. Karena itu alur streaming dilengkapi pemantauan
+kesegaran data (§6), sementara alur batch tidak memerlukannya.
+
+---
+
+## 3. Alur Streaming
+
+### 3.1 Jalur satu snapshot
+
+```mermaid
+flowchart LR
+    API["GBFS API<br/>station_status.json"]
+    P["Producer<br/>poll tiap ~90 detik"]
+    K["Kafka<br/>topic snapshot"]
+    KDLQ["Kafka<br/>topic .dlq"]
+    C["Consumer"]
+    RAW["BigQuery<br/>raw.station_status"]
+    DLQT["BigQuery<br/>station_status_dlq"]
+    DBT["dbt<br/>tiap jam"]
+    MART["mart dashboard<br/>2 mart per jam"]
+    MB["Metabase"]
+
+    API --> P
+    P -->|"payload valid"| K
+    P -.->|"payload rusak"| KDLQ
+    K --> C
+    C --> RAW
+    KDLQ -.-> DLQT
+    RAW --> DBT --> MART --> MB
+```
+
+Tiga hal yang perlu diperhatikan dari diagram itu:
+
+- **Producer dan consumer terpisah.** Producer hanya bertugas mengambil data
+  dan melempar ke Kafka. Bila BigQuery sedang bermasalah, producer tetap
+  berjalan dan datanya tertahan di Kafka — bukan hilang.
+- **Payload rusak tidak membuang pesan sebelumnya.** Ia disalurkan ke topic
+  DLQ tersendiri, sehingga satu payload cacat tidak menghentikan aliran.
+- **dbt berjalan terpisah dari consumer.** Consumer menulis apa adanya;
+  perhitungan risiko dan mart dikerjakan dbt setelahnya. Dengan begitu
+  perubahan logika bisnis tidak mengharuskan consumer dinyalakan ulang.
+
+### 3.2 Yang membuat streaming berbeda: satu stasiun, banyak baris
+
+Ini bagian yang paling sering salah dipahami, dan alasannya ada di sifat
+datanya.
 
 ```mermaid
 flowchart TD
-    R["RAW<br/>data sumber apa adanya<br/>+ metadata ingestion"]
-    S["STAGING<br/>cleaning, type cast, DQ validation<br/>grain 1:1 dengan raw"]
-    I["INTERMEDIATE<br/>business rules, surrogate key,<br/>threshold risk, join lintas fact"]
-    MC["MARTS/CORE<br/>fact & dimension final"]
-    MD["MARTS/DASHBOARD<br/>BI-ready, dikonsumsi Metabase"]
+    P1["Polling 10:00:00<br/>stasiun A = 12 sepeda"] --> W1["1 baris ditulis"]
+    P2["Polling 10:01:30<br/>stasiun A = 12 sepeda"] --> W2["1 baris ditulis<br/>walau nilainya sama"]
+    P3["Polling 10:03:00<br/>stasiun A = 8 sepeda"] --> W3["1 baris ditulis"]
+    W1 --> F["fct_station_status<br/>baris = stasiun × jumlah polling"]
+    W2 --> F
+    W3 --> F
+```
+
+Setiap polling merekam **seluruh** stasiun, bukan hanya yang berubah. Jadi
+jumlah baris tumbuh sebesar jumlah stasiun setiap ~90 detik.
+
+Pilihan ini disengaja: tabelnya menjadi *periodic snapshot*. Ia menjawab
+"bagaimana kondisi seluruh jaringan pada pukul 10:00" — pertanyaan yang tidak
+bisa dijawab tabel yang hanya mencatat perubahan. Konsekuensinya volume
+datanya besar, dan itu ditangani lewat masa simpan (§8).
+
+Karena grainnya satu baris per stasiun per waktu, analisis durasi dilakukan
+dengan `GROUP BY` per bucket waktu, bukan dengan rentang validitas.
+
+### 3.3 Lapisan turunannya
+
+Rantai setelah `fct_station_status` dipakai untuk dua keperluan berbeda:
+
+```mermaid
+flowchart LR
+    F["fct_station_status<br/>seluruh snapshot"]
+    L["snapshot terakhir<br/>yang lengkap"]
+    D["arsip perubahan saja<br/>incremental"]
+    W["rentang waktu<br/>per keadaan"]
+    M["mart dashboard"]
+
+    F --> L --> M
+    F --> D --> W
+    F --> M
+```
+
+- **Snapshot terakhir yang lengkap** dipakai mart. Ini perlu karena penulisan
+  consumer bisa terputus di tengah, sehingga snapshot terakhir belum tentu
+  memuat seluruh stasiun.
+- **Arsip perubahan** menyimpan hanya baris yang berubah, untuk menjawab
+  pertanyaan seperti "berapa lama sebuah stasiun bertahan kosong".
+- **Rentang waktu per keadaan** menambahkan waktu berakhir pada tiap
+  perubahan, sehingga durasinya bisa dihitung.
+
+---
+
+## 4. Layer Data
+
+```mermaid
+flowchart TD
+    R["RAW<br/>data sumber apa adanya"]
+    S["STAGING<br/>pembersihan & validasi"]
+    I["INTERMEDIATE<br/>aturan bisnis"]
+    MC["MARTS/CORE<br/>fact & dimension"]
+    MD["MARTS/DASHBOARD<br/>siap untuk BI"]
 
     R --> S --> I --> MC --> MD
 ```
 
-| Layer | Dataset | Materialisasi | Karakteristik |
-|---|---|---|---|
-| Raw | `shuhaib_citibike_raw.trips`, `...station_status` | Table (partition + cluster) | Tanpa transformasi bisnis |
-| Staging | `shuhaib_citibike_staging.stg_trips` | View | DQ check di sini (§5) |
-| Intermediate | `shuhaib_citibike_intermediate.int_*` | View | Belum final, logika bersama |
-| Marts/Core | `shuhaib_citibike_marts.fct_trips`, `dim_station` | Table | Grain final |
-| Marts/Dashboard | `shuhaib_citibike_dashboard.station_risk_monitoring` | View | Siap untuk BI |
+| Layer | Dataset | Sifat |
+|---|---|---|
+| Raw | `shuhaib_citibike_raw` | Tanpa transformasi bisnis, hanya ditambah metadata ingestion |
+| Staging | `shuhaib_citibike_staging` | Grain 1:1 dengan sumber; validasi bisnis di sini |
+| Intermediate | `shuhaib_citibike_intermediate` | Logika yang belum final dan dipakai bersama |
+| Marts/Core | `shuhaib_citibike_marts` | Definisi final; jadi dasar foreign key |
+| Marts/Dashboard | `shuhaib_citibike_dashboard` | Satu tabel per chart |
 
-> **Konvensi penamaan dataset.** Project GCP dipakai bersama peserta lain,
-> sehingga seluruh dataset diberi prefiks nama pemilik (`shuhaib_`). Ini
-> bukan sekadar kerapian: tanpa prefiks, dua peserta dapat memakai nama
-> dataset yang sama dan tabelnya saling tercampur dalam satu dataset.
-> Nama dataset dibangun otomatis dari `BQ_DATASET_RAW` & `BQ_DATASET_DBT`
-> di `.env` (dipakai `dags/common/config.py`, `dbt/profiles/profiles.yml`,
-> dan macro `generate_schema_name`), jadi dapat diganti tanpa mengubah kode.
->
-> Nama bucket GCS tidak perlu prefiks ini karena nama bucket bersifat
-> unik global — mustahil bertabrakan.
+**Materialisasi mengikuti rasio build terhadap baca.** BigQuery menagih bytes
+yang dipindai, bukan jumlah query, sehingga model yang dibangun sekali lalu
+dibaca berkali-kali disimpan sebagai *table*; yang dibaca jarang tetap *view*.
+Satu tabel arsip perubahan memakai *incremental* karena isinya bertambah
+sepanjang waktu.
 
-> Materialisasi mengikuti strategi penekanan biaya: staging/intermediate/
-> dashboard sebagai **view**, marts/core sebagai **table**.
+> Project GCP dipakai bersama peserta lain, jadi setiap dataset diberi prefiks
+> nama pemilik. Nama bucket GCS tidak perlu prefiks karena nama bucket sudah
+> unik secara global.
 
 ---
 
-## 3. Dimensional Model (Fact Constellation)
+## 5. Data Quality
 
-```mermaid
-erDiagram
-    fct_trips }o--|| dim_station : "start_station_key"
-    fct_trips }o--|| dim_station : "end_station_key"
-    fct_trips }o--|| dim_date : "start_date_key"
-    fct_trips }o--|| dim_rider_type : "rider_type_key"
-    fct_station_status }o--|| dim_station : "station_key"
-    fct_station_status }o--|| dim_date : "snapshot_date_key"
-
-    fct_trips {
-        string trip_key PK
-        string ride_id
-        string start_station_key FK
-        string end_station_key FK
-        date start_date_key FK
-        string rider_type_key FK
-        timestamp started_at
-        timestamp ended_at
-        int duration_seconds
-        float distance_km
-        string rideable_type
-    }
-
-    fct_station_status {
-        string station_status_key PK
-        string station_key FK
-        date snapshot_date_key FK
-        timestamp snapshot_timestamp
-        timestamp last_reported
-        int num_bikes_available
-        int num_docks_available
-        bool is_renting
-        bool is_returning
-        float occupancy_rate
-        string risk_level
-    }
-
-    dim_station {
-        string station_key PK
-        string station_id
-        string station_name
-        float lat
-        float lon
-        int capacity
-        string region_id
-    }
-
-    dim_date {
-        date date_key PK
-        int year
-        int month
-        int day
-        int day_of_week
-        bool is_weekend
-    }
-
-    dim_rider_type {
-        string rider_type_key PK
-        string member_casual
-        string description
-    }
-```
-
-**Grain:**
-
-| Tabel | Grain |
-|---|---|
-| `fct_trips` | 1 baris per trip (transaction fact) |
-| `fct_station_status` | 1 baris per stasiun per snapshot polling (periodic snapshot fact) |
-
-**Catatan penting:** karena `fct_station_status` adalah periodic snapshot,
-agregasi (occupancy per jam, durasi risk) dilakukan dengan `GROUP BY`
-time-bucket, bukan validity window.
-
----
-
-## 4. Alur Streaming — Periodic Snapshot
-
-```mermaid
-sequenceDiagram
-    participant P as Producer (polling)
-    participant K as Kafka
-    participant C as Consumer
-    participant G as GCS / BigQuery
-
-    loop setiap 60-120 detik
-        P->>P: GET station_status.json
-        alt payload valid
-            P->>K: publish snapshot (key = station_id)
-            K->>C: consume
-            C->>G: tulis 1 baris per stasiun
-        else payload rusak
-            P->>K: publish ke citibike.station_status.dlq
-        end
-    end
-```
-
-**Keputusan desain:**
-
-1. **Key = `station_id`** → pesan satu stasiun selalu masuk partisi yang
-   sama, sehingga urutan per stasiun konsisten.
-2. **Tanpa diff/state store** → seluruh snapshot direkam apa adanya
-   (periodic snapshot). Trade-off: volume ~2,2 juta baris/hari, tapi
-   jauh lebih sederhana daripada CDC.
-3. **Setiap baris punya `snapshot_timestamp`** sebagai penanda waktu polling.
-
----
-
-## 5. Strategi Data Quality
+Prinsipnya satu: **tidak ada data yang dibuang diam-diam.** Setiap kegagalan
+punya tempat penampungannya sendiri, sesuai sifat masalahnya.
 
 ```mermaid
 flowchart TD
-    IN["Baris masuk"] --> PARSE{"Bisa di-parse?"}
-    PARSE -- tidak --> DLQT["Dead Letter Queue<br/>topik .dlq / folder _rejected"]
-    PARSE -- ya --> VALID{"Lolos validasi bisnis?"}
-    VALID -- tidak --> QUAR["Tabel karantina<br/>stg_*_rejected + rejection_reason"]
+    IN["Baris masuk"] --> PARSE{"Bisa dibaca?"}
+    PARSE -- tidak --> DLQ["DLQ<br/>payload mentah disimpan utuh"]
+    PARSE -- ya --> VALID{"Lolos aturan bisnis?"}
+    VALID -- tidak --> QUAR["Tabel karantina<br/>+ alasan penolakan"]
     VALID -- ya --> DUP{"Duplikat?"}
-    DUP -- ya --> DEDUP["Dedup langsung<br/>QUALIFY ROW_NUMBER()=1<br/>jumlah dicatat sebagai metrik"]
-    DUP -- tidak --> OK["stg_* (data valid)"]
+    DUP -- ya --> DED["Dibuang, jumlahnya dicatat"]
+    DUP -- tidak --> OK["Data valid"]
 
-    QUAR -. lonjakan >5% .-> ALERT["Alert kegagalan pipeline"]
-    DLQT -. .-> ALERT
+    QUAR -.->|"karantina melonjak"| ALERT["Alert"]
+    DLQ -.-> ALERT
 ```
 
-Prinsip: **never silently drop data** — semua yang gagal tetap bisa diaudit.
-Tiga pola penanganan beserta retensinya ada di
-[`sql/bigquery/02_cleanup_rejected.sql`](../sql/bigquery/02_cleanup_rejected.sql).
+Tiga pola itu dipilih karena sifatnya berbeda:
 
-### 5.1 Normalisasi station_id (konsistensi lintas era data)
-
-Saat verifikasi marts ditemukan **65 stasiun** yang tercatat dengan dua
-`station_id` karena perbedaan gaya penulisan digit terakhir:
-
-```
-5343.1   Allen St & Hester St   lat=40.71606  lng=-73.99191
-5343.10  Allen St & Hester St   lat=40.71606  lng=-73.99191
-         ^ nama & koordinat IDENTIK
-```
-
-Pengecekan format biasa tidak menangkapnya karena `5343.1` lolos regex
-format yang sah. Dampaknya nyata: satu stasiun tampil sebagai dua baris di
-dashboard, dan analisis `net_flow` menjadi bias — `5343.1` net −4.645 dan
-`5343.10` net +4.536 terlihat "seimbang" padahal gabungannya tidak.
-
-**Solusi:** model `stg_station_id_mapping` memetakan setiap `station_id`
-ke id kanonik. Penggabungan hanya dilakukan bila **nama + latitude +
-longitude identik** (koordinat dibulatkan 6 desimal) — kriteria koordinat
-inilah yang menjaga agar stasiun yang memang terpisah tidak ikut tergabung:
-
-| Kasus | Koordinat | Keputusan |
+| Masalah | Perlakuan | Alasan |
 |---|---|---|
-| 65 pasangan artifact | identik | digabung |
-| `7625.18` vs `7625.22` (E 118 St & Park Ave) | berbeda | dibiarkan terpisah |
-| `8381.04` vs `8421.03` (W 181 St & Riverside Dr) | berbeda | dibiarkan terpisah |
+| Tidak bisa dibaca | DLQ, payload disimpan utuh | Datanya belum pernah terbaca, jadi tidak bisa dipulihkan dari tempat lain |
+| Melanggar aturan bisnis | Tabel karantina + alasan | Datanya ada, tetapi tidak boleh masuk ke tabel bersih |
+| Duplikat | Dibuang di tempat | Datanya masih ada di sumber, cukup dicatat jumlahnya |
 
-Hasil: 2.352 `station_id` di sumber → **2.285 id kanonik**. Dijaga oleh
-uji singular `assert_no_phantom_station_ids.sql`.
+Aturan validasi yang sama dipakai oleh tabel bersih **dan** tabel karantina,
+sehingga keduanya tidak mungkin berbeda pendapat.
 
-> Efek sampingnya positif untuk analisis: nilai `net_flow` ekstrem turun
-dari artefak ±4.500 menjadi sinyal nyata +727 / −460.
+Selain itu, validasi juga berjalan sebagai **gate**: bila rasio baris
+dikarantina melampaui ambang, transformasi dihentikan sebelum data
+mencurigakan itu naik ke dashboard.
 
 ---
 
-## 6. Mekanisme Alert
+## 6. Pemantauan
 
-### 6.1 Ringkasan sumber alert
+Kegagalan tunggal dan kegagalan sistemik butuh perlakuan berbeda, jadi alert
+dibagi dua lapis:
 
-| Sumber | DAG / mekanisme | Ambang | Pesan |
-|---|---|---|---|
-| Batch & transformasi — per task | `default_args.on_failure_callback` | task gagal | spesifik + tautan log |
-| Batch & transformasi — per DAG-run | `citibike_watchdog_pipeline` (polling) | DAG-run `failed` | satu ringkasan berisi daftar task |
-| Streaming — freshness | `citibike_watchdog_streaming` | data > 10 menit | rantai ujung-ke-ujung |
-| Streaming — consumer liveness | `citibike_watchdog_streaming` | objek GCS > 10 menit | consumer berhenti menulis |
-| Streaming — DLQ | `citibike_watchdog_streaming` | > 200 baris / 30 menit | payload mulai rusak beruntun |
-| Streaming — karantina | `citibike_watchdog_streaming` | > 5% | skema sumber berubah |
-| DQ batch (gate) | task `check_quarantine_surge` | > 5% | transformasi dihentikan sebelum naik layer |
-| DQ historis | tabel `dq_metrics` | — | riwayat, bukan pemicu |
-
-Semua alert keluar lewat satu jalur: `common/alert_utils.py` → webhook
-(Slack), dengan format payload berbeda per jenis.
-
-### 6.2 Dua lapis, bukan satu
-
-Kegagalan tunggal dan kegagalan sistemik butuh perlakuan berbeda, jadi
-alert pun dibagi dua lapis:
-
-- **Lapis 1 — per task** (`on_failure_alert`). Pesannya spesifik dan memuat
-  tautan log, sehingga bisa langsung ditindaklanjuti. Kunci dedup-nya
-  `failure:<dag_id>:<task_id>`, jadi task yang gagal berulang tidak
-  mengirim pesan berulang.
-- **Lapis 2 — per DAG-run** (`alert_dag_run_failed`). Satu pesan berisi
-  daftar lengkap task yang gagal. Ini yang menjaga Slack tetap terbaca
-  ketika `citibike_ingest_trips` mengalami kegagalan sistemik: ia punya
-  puluhan task paralel, dan tanpa lapis ini Slack menerima puluhan pesan
-  karena kunci dedup lapis 1 berbeda per task.
-
-### 6.3 Kenapa lapis 2 memakai polling, bukan `on_failure_callback` tingkat DAG
-
-Pendekatan yang jelas adalah memasang `on_failure_callback` pada DAG.
-Pendekatan itu **sudah dicoba dan terbukti tidak bisa diandalkan** di
-Airflow 2.9.3, sehingga diganti.
-
-Sebabnya ada di `DAG.fetch_callback`, yang membangun konteks callback dari
-**satu task instance sembarang**:
-
-```python
-ti = tis[-1]  # get first TaskInstance of DagRun
-context = ti.get_template_context(session=session)
-```
-
-Untuk DAG yang memakai **dynamic task mapping** — dan `citibike_ingest_trips`
-memakainya di dua tempat, karena jumlah partisi baru diketahui saat run —
-pemanggilan itu melempar:
-
-```
-airflow.models.expandinput.NotFullyPopulated:
-    Failed to populate all mapping metadata; missing: 'fname'
-```
-
-Callback tidak pernah terkirim, dan jejaknya hanya muncul sebagai
-`ERROR - Error executing DagCallbackRequest callback` di log DAG processor.
-Ini kegagalan senyap: alert tampak terpasang, tetapi tidak pernah berbunyi.
-Terverifikasi pada run `uji_gagal_alert_1` (2026-09-13) — run gagal, tidak
-ada pesan terkirim.
-
-Dua cacat lain dari pendekatan callback, yang ikut hilang dengan polling:
-
-1. **Ringkasannya bisa keliru.** Saat callback dipanggil, task yang gagal
-   masih berstatus `up_for_retry`, bukan `failed`. Pesan pernah terkirim
-   dengan isi `failed_tasks: []` — justru membingungkan.
-2. **Callback bisa diproses berulang.** Teramati 6 kali untuk satu run,
-   sehingga pesan berpotensi terkirim berkali-kali.
-
-`citibike_watchdog_pipeline` membaca metadata Airflow langsung, sehingga
-tidak bergantung pada bentuk konteks apa pun. Ia baru melapor setelah
-DAG-run benar-benar berstatus `failed`, jadi daftar task yang dilaporkan
-sudah final. Terbukti mampu menyebut task hasil mapping
-(`split_and_upload`, `load_partition`) yang justru membuat callback gagal.
-
-### 6.4 Pembatas agar Slack tidak dibanjiri
-
-Airflow sendiri tidak membatasi laju alert; Slack membatasi sekitar
-1 pesan/detik. Tiga pembatas dipasang berurutan di `common/alert_throttle.py`:
-
-| Pembatas | Nilai default | Fungsi |
+| Lapis | Cakupan | Bentuk pesan |
 |---|---|---|
-| Dedup | 3600 detik | alert dengan kunci sama tidak diulang |
-| Rate limit | 3 detik | menjaga batas keras Slack |
-| Burst guard | 5 pesan / 60 detik | membatasi badai alert kegagalan task |
+| Per task | satu task gagal | spesifik, memuat tautan log |
+| Per DAG-run | satu run gagal | satu ringkasan berisi daftar task yang gagal |
 
-Jendela dedup (3600 detik) sengaja disamakan dengan jendela pencarian
-DAG-run gagal di `citibike_watchdog_pipeline` (60 menit). Bila jendela dedup
-lebih pendek, satu run gagal yang sama akan dilaporkan berulang kali —
-teramati 3 kali per jam sebelum keduanya diselaraskan. Dengan nilainya
-sama, tiap kegagalan dilaporkan **tepat sekali**; alert per task harian
-tetap terkirim setiap hari karena jaraknya jauh lebih besar dari satu jam.
+Lapis kedua perlu karena satu DAG bisa punya puluhan task paralel — tanpa itu,
+kegagalan sistemik mengirim puluhan pesan dan Slack jadi tidak terbaca.
 
-Status ketiga pembatas disimpan di Airflow Variable, bukan di memori
-proses. Dengan begitu pembatasnya tetap berlaku lintas proses task dan
-lintas restart — termasuk saat 91 task paralel dieksekusi di proses yang
-berbeda.
+Untuk streaming, ada tambahan pemantauan berupa **kesegaran data**: bila
+snapshot terakhir sudah terlalu lama, itu tanda pipeline berhenti di
+tengah jalan. Pemeriksaan ini penting justru karena masalah pada streaming
+tidak memunculkan error — datanya hanya berhenti bertambah.
 
-Burst guard hanya berlaku untuk alert per task. Ringkasan DAG-run dan
-peringatan watchdog **melewatinya**, karena justru keduanya sumber
-informasi utama saat badai alert terjadi.
-
-### 6.5 Retention data operasional
-
-Dijalankan `citibike_retention_cleanup` setiap Minggu 03:00.
-
-| Tabel | Retensi | Alasan |
-|---|---|---|
-| `station_status` | 14 hari | mart hanya memakai snapshot terakhir; tren cukup hitungan hari |
-| `station_status_dlq` | 30 hari | cukup lama untuk memeriksa pola payload rusak |
-
-Tabel karantina dbt **tidak** dibersihkan di sini: keduanya bermaterialisasi
-**view**, sehingga tidak menyimpan data sendiri dan masa hidupnya otomatis
-mengikuti tabel raw. View juga memang pilihan yang tepat, karena
-`check_quarantine_surge` menghitung rasio baris ditolak per eksekusi dbt —
-bila tabelnya diakumulasi, pembilang rasio ikut memuat baris yang sudah
-lama ditolak dan hasilnya salah.
-
-Efek retensi dibuktikan, bukan diasumsikan: baris sintetis berusia 20 hari
-dan 40 hari disisipkan, lalu terbukti terhapus, sementara seluruh data asli
-tetap utuh.
-
-### 6.6 Batas yang perlu disadari
-
-Seluruh mekanisme di atas berjalan **di dalam** Airflow. Karena itu tidak
-ada satu pun yang bisa melaporkan bahwa Airflow sendiri yang mati: bila
-scheduler berhenti, watchdog ikut berhenti dan tidak ada alert dikirim.
-Keheningan tidak boleh disalahartikan sebagai "semua sehat". Untuk menutup
-celah ini diperlukan pemantauan dari luar (mis. uptime monitor yang mengecek
-endpoint health scheduler) — di luar cakupan proyek ini, tetapi perlu
-disebut agar batasnya jelas.
+Alert keluar lewat satu jalur yang sama untuk semua sumber, dan diberi
+pembatas agar tidak membanjiri Slack: alert dengan isu yang sama tidak diulang
+dalam jangka waktu tertentu.
 
 ---
 
-## 7. Struktur Folder Service
+## 7. Struktur Service
 
 | Folder | Peran | Container |
 |---|---|---|
-| `dags/` | DAG Airflow + helper (`common/`) | airflow-scheduler |
+| `dags/` | DAG Airflow + helper | airflow-scheduler |
 | `streaming/producer/` | Poll GBFS → Kafka | streaming-producer |
-| `streaming/consumer/` | Kafka → GCS/BigQuery | streaming-consumer |
-| — (image bawaan `kafbat/kafka-ui`) | Inspeksi topik, partisi, lag & isi pesan Kafka | kafka-ui |
-| `dbt/` | Transformasi raw → marts | (di dalam image Airflow) |
+| `streaming/consumer/` | Kafka → GCS & BigQuery | streaming-consumer |
+| — | Inspeksi topik & lag Kafka | kafka-ui |
+| `dbt/` | Transformasi raw → marts | di dalam image Airflow |
 | `sql/` | DDL & query operasional | — |
 | `infra/` | Setup GCP sekali jalan | — |
 
-Rincian cara menjalankan ada di [`runbook.md`](./runbook.md).
-
 ---
 
-## 8. Lapisan CDC (snapshot-diff)
+## 8. Batas yang Perlu Disadari
 
-### 8.1 Keluarga CDC yang tersedia untuk sumber ini
+Tiga hal berikut bukan kekurangan yang terlewat, melainkan batas yang dipilih
+secara sadar. Ketiganya perlu disebut agar tidak disalahartikan.
 
-CDC bukan satu teknik, melainkan kategori. Empat keluarganya:
+**1. Pemantauan berjalan di dalam Airflow, sehingga tidak bisa melaporkan
+Airflow sendiri yang mati.** Bila scheduler berhenti, watchdog ikut berhenti
+dan tidak ada alert yang dikirim. Untuk menutup celah ini diperlukan
+pemantauan dari luar, yang berada di luar cakupan project ini.
 
-| Keluarga | Cara kerja | Tersedia di sini? |
-|---|---|---|
-| Log-based (Debezium) | Membaca WAL/binlog database sumber | ❌ **Tidak** |
-| Trigger-based | Trigger menulis tabel perubahan | ❌ Tidak |
-| Timestamp-based | `WHERE updated_at > ?` | ❌ Tidak |
-| **Snapshot-diff** | Membandingkan dua keadaan berurutan | ✅ **Ini yang dipakai** |
+**2. "Tidak ada perubahan" dan "tidak ada data" tampak identik.** Keduanya
+menghasilkan satu rentang waktu panjang yang sama. Karena itu rentang yang
+terlalu panjang ditandai secara eksplisit dan **harus disaring** sebelum
+durasinya dipakai. Tanpa saringan itu, analisis durasi didominasi artefak
+matinya streaming.
 
-Tiga keluarga pertama memerlukan akses ke database sumber, sedangkan sumber
-di sini adalah REST endpoint GBFS yang hanya mengembalikan keadaan penuh —
-tanpa WAL, tanpa trigger, dan tanpa kolom `updated_at` per catatan. Jadi
-snapshot-diff bukan sekadar pilihan, melainkan satu-satunya yang mungkin.
+**3. Pemrosesan ulang data status stasiun dibatasi masa simpan tabel mentah.**
+Tabel `raw.station_status` dipangkas berkala karena volumenya besar — sekitar
+2.450 baris setiap polling. Konsekuensinya berlapis, dan lapisan keduanya yang
+mudah terlewat:
 
-**Yang perlu dipahami: resolusi waktunya tidak kalah.** Keunggulan utama
-log-based CDC adalah menangkap setiap mutasi, termasuk yang terjadi di antara
-dua pembacaan. Keunggulan itu hilang di sini karena mutasinya sendiri berasal
-dari polling 90 detik — worker hanya melihat keadaan tiap 90 detik, sehingga
-WAL hanya akan mencatat apa yang worker tulis. Semua keluarga CDC mencatat
-tingkat perubahan yang sama.
+- **Pemrosesan ulang** yang menuntut data mentah hanya mungkin dilakukan untuk
+  periode yang masih berada dalam masa simpan.
+- **`fct_station_status` ikut terkena batas yang sama.** Ia bermaterialisasi
+  `table` dan dibangun ulang penuh dari `stg_station_status` setiap `dbt run`.
+  Karena `stg_station_status` membaca `raw.station_status` yang sudah dipangkas,
+  riwayatnya tidak bisa lebih panjang daripada `raw` — bukan karena ada yang
+  menghapus barisnya, melainkan karena sumbernya memang sudah tidak lengkap lagi.
+- **Histori jangka panjang karena itu hanya ada di arsip perubahan**
+  (`int_station_status_changes`). Itu memang tujuan arsip tersebut, dan
+  sekaligus alasan ia disimpan terpisah dari snapshot.
 
-### 8.2 Dua model, dua peran
-
-```
-fct_station_status            (jendela kerja — seluruh snapshot, retensi pendek)
-        │
-        ├─► int_station_status_changes  (arsip — HANYA perubahan, incremental)
-        │           │
-        │           └─► int_station_status_windows  (validity window + durasi)
-        │
-        └─► mart dashboard (tidak berubah)
-```
-
-| Model | Materialisasi | Peran |
-|---|---|---|
-| `int_station_status_changes` | incremental, `insert_overwrite` | Arsip perubahan jangka panjang |
-| `int_station_status_windows` | view | Menambah `valid_to` + `duration_minutes` |
-
-Pemisahan peran ini penting: `fct_station_status` adalah **jendela kerja**
-yang boleh dipangkas retensinya, sedangkan arsip perubahan disimpan terpisah
-sehingga tidak ikut terpangkas.
-
-### 8.3 Keputusan teknis yang menentukan hasilnya
-
-Empat hal berikut ditemukan lewat pengujian, dan masing-masing sempat
-menghasilkan data yang **salah** sebelum diperbaiki:
-
-**1. Kunci diff wajib `gbfs_station_id`, bukan `station_key`.**
-
-Di `fct_station_status`, `station_key` bernilai NULL untuk sekitar 9,9%
-baris (93.751 baris pada potret 2026-09-18) — stasiun yang ada di feed GBFS
-tetapi tidak punya riwayat trip (`is_unknown_station = TRUE`). Seluruh baris
-itu masuk ke **satu** partisi `LAG()`, sehingga perubahan antar stasiun
-berbeda tercampur. Terverifikasi saat itu: 82.183 dari 139.582 baris (59%)
-salah karena sebab ini.
-
-`gbfs_station_id` tidak pernah NULL (0 baris, 2.454 nilai unik pada potret
-2026-09-18).
-
-Ini menegaskan peran `dim_station` sebagai jembatan antar ruang id:
-`station_key` adalah kunci untuk bergabung ke dimensi, sedangkan
-`gbfs_station_id` adalah identitas stasiun itu sendiri.
-
-**2. Benih (seed) wajib, dan wajib PER-STASIUN.**
-
-`LAG()` hanya melihat baris di dalam dataset input. Tanpa benih, baris
-pertama tiap batch tidak punya pendahulu sehingga dianggap "stasiun baru" —
-dan setiap rotasi menghasilkan ~2.450 event `op='c'` palsu.
-
-Percobaan pertama mengambil benih dari **satu snapshot di batas pemrosesan
-terakhir**. Cara itu gagal: snapshot batas tidak selalu lengkap —
-terverifikasi hanya memuat 2.447 stasiun dan 3 stasiun absen di dalamnya.
-Stasiun yang absen jadi tidak punya pendahulu, sehingga dicatat sebagai
-`op='c'` palsu. Terbukti: 3 stasiun punya `op='c'` ganda.
-
-Benih sekarang diambil **per stasiun** dari tabel tujuan itu sendiri:
-
-```sql
-QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY gbfs_station_id ORDER BY valid_from DESC
-) = 1
-```
-
-Keuntungannya berlipat: model tidak lagi bergantung pada `fct_station_status`
-sama sekali, sehingga kebal terhadap snapshot yang tidak lengkap **maupun**
-snapshot batas yang sudah terhapus retensi.
-
-**3. `copy_partitions=True` wajib.**
-
-Adapter BigQuery hanya menerima `merge` dan `insert_overwrite`. Tanpa
-`copy_partitions`, `insert_overwrite` **mengganti seluruh partisi** yang
-tersentuh sehingga perubahan lain di tanggal yang sama terhapus.
-
-**4. Join di akhir memaksa pemindaian ganda.**
-
-Versi awal membawa kolom metadata lewat `LEFT JOIN` ke `fct_station_status` di
-akhir query, sehingga tabel itu dipindai **dua kali**. Setelah metadata dibawa
-sejak CTE sumber, biaya per run turun:
-
-| | Sebelum | Sesudah |
-|---|---|---|
-| Run incremental | 130,2 MiB | **28,1 MiB** |
-| Per bulan (720 run) | ~94 GB | **~20 GB** |
-
-### 8.4 Angka nyata
-
-Potret **2026-09-18**.
-
-| Metrik | Nilai |
-|---|---|
-| Rasio perubahan | **6,9%** (65.300 dari 950.321 baris) |
-| Stasiun tercakup | 2.448 |
-| `op='c'` | 2.447 |
-| `op='u'` | 62.853 |
-| Interval ditandai celah data | 25.886 (39,6%) |
-| Dwell time (setelah celah disaring) | median **1 menit**, p90 7 menit, maks 10 menit |
-
-> **Angka ini bergerak.** Arsip bertambah selama streaming berjalan, jadi
-> jumlah baris dan rasionya berubah setiap kali consumer menulis snapshot.
-> Yang stabil hanyalah bentuknya: rasio perubahan tetap di kisaran 7%, dan
-> proporsi interval bertanda celah tetap sekitar 39,6%.
-
-> ⚠️ **Invarian lama tidak lagi persis berlaku.** Semula `op='c'` selalu sama
-> dengan jumlah stasiun, dan kesamaan itu dipakai sebagai tanda model sehat.
-> Pada potret ini selisihnya satu: 2.447 `op='c'` untuk 2.448 stasiun. Satu
-> stasiun (`gbfs_station_id` 1826348248869574940) punya dua baris tetapi
-> keduanya `op='u'`, sehingga tidak ada baris `op='c'`-nya. Dugaannya window
-> yang sama diproses dua kali, sehingga benih per-stasiun sudah memuat stasiun
-> itu sendiri dan baris `op='c'` pertamanya tertimpa — **belum terbukti**.
-> Yang sudah pasti: `assert_station_status_changes_single_create` hanya
-> menangkap `op='c'` **ganda**, tidak menangkap `op='c'` yang **hilang**.
-
-### 8.5 Batas yang perlu disadari
-
-**"Tidak ada perubahan" dan "tidak ada data" tampak identik.** Keduanya
-menghasilkan satu interval panjang yang sama. Terverifikasi: 3.964 menit yang
-semula tampak sebagai dwell time terpanjang ternyata **artefak celah data** —
-semuanya berawal pada timestamp yang sama, yaitu titik streaming berhenti.
-
-Karena itu `int_station_status_windows` menyediakan `is_possible_gap`, dan
-kolom itu **harus disaring** sebelum `duration_minutes` dipakai:
-
-```sql
-WHERE duration_minutes IS NOT NULL AND NOT is_possible_gap
-```
-
-Setelah disaring, dwell time yang tersisa (median 1 menit) baru bermakna.
-
-**Delta menjadi satu-satunya arsip jangka panjang.** Sebelumnya riwayat
-tersimpan ganda (raw + fct) sehingga bug di satu tempat tidak fatal. Setelah
-`fct` dipangkas, redundansi itu hilang — itulah alasan test
-`assert_station_status_changes_single_create` ada.
+Riwayat trip tidak terkena batas ini karena datanya sudah final.

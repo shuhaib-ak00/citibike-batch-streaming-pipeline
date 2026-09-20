@@ -144,3 +144,30 @@ models:
         data_tests:
           - dbt_utils.expression_is_true:
               expression: "BETWEEN 0 AND 1"
+
+  - name: station_volatility
+    description: |
+      Mart dashboard #8 — stasiun paling fluktuatif, dihitung dari arsip
+      perubahan (bukan snapshot). Dipakai untuk chart bar "top 10 stasiun
+      paling fluktuatif".
+      Grain: 1 baris per stasiun.
+    columns:
+      - name: gbfs_station_id
+        data_tests:
+          - not_null
+          - unique
+      - name: change_count
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 1"
+      - name: total_moved
+        description: >
+          Jumlah sepeda+dock yang bergerak (nilai absolut), bukan selisih
+          bersih — stasiun 10 -> 5 -> 10 dihitung 10 sepeda berpindah.
+        data_tests:
+          - not_null
+      - name: volatility_label
+        data_tests:
+          - accepted_values:
+              values: ["sangat_fluktuatif", "fluktuatif", "tenang"]

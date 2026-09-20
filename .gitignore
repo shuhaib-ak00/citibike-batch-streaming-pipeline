@@ -53,6 +53,9 @@ docs/qna.md
 docs/demo-script.md
 docs/slide-outline.md
 docs/screenshots/README.md
+# Versi rinci architecture.md (dipakai untuk persiapan internal, bukan untuk
+# diserahkan). Dokumentasi arsitektur yang di-commit adalah docs/architecture.md.
+docs/architecture-detail.md
 
 # ===== IDE / OS =====
 .vscode/

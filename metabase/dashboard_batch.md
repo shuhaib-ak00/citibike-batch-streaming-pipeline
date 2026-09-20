@@ -19,7 +19,7 @@ setelah `dbt run`.
    - **Dataset ID**: `shuhaib_citibike_dashboard`
    - **Service account JSON**: tempel **seluruh isi** `secrets/service-account.json`
 3. **Save** → **Sync database schema**
-4. Pastikan muncul 4 view: `trip_summary_daily`, `station_popularity`,
+4. Pastikan muncul 4 tabel: `trip_summary_daily`, `station_popularity`,
    `usage_pattern_hourly`, `member_vs_casual_behavior`
 
 > Untuk chart streaming nanti, buat koneksi kedua dengan Dataset ID yang sama
@@ -351,6 +351,12 @@ Chart 1–4 bersumber **batch** → auto-refresh cepat tidak diperlukan
 
 Auto-refresh 1 menit disiapkan untuk dashboard **streaming**, agar perubahan
 datanya terlihat saat dashboard dibuka.
+
+Keempat mart di sini dimaterialisasi sebagai **table**, bukan view. Alasannya:
+sebagai view, tiap kali halaman dibuka berarti memindai ulang `fct_trips`
+(5,9 juta baris) hanya untuk menghasilkan 90–2.285 baris. Dibangun sekali sehari
+lalu dibaca berulang jauh lebih murah. Rinciannya di
+[`../docs/erd.md`](../docs/erd.md) §6.
 
 ---
 

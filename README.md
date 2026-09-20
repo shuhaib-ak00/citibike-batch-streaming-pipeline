@@ -34,7 +34,7 @@ Sumber      │                                              ├─► BigQuery 
                                                    → marts/core → marts/dashboard
                                                                     │
                                                                     ▼
-                                                            Metabase (7 chart)
+                                                            Metabase (8 chart)
 ```
 
 Empat lapis (medallion): **Raw → Staging → Intermediate → Marts**, dengan marts
@@ -69,7 +69,7 @@ docs/          architecture.md · erd.md · runbook.md
 |---|---|---|
 | Trip history (CSV bulanan) | Batch | 5.981.588 trip (Jan–Mar 2026) |
 | GBFS `station_status` | Streaming ~90 detik | ~2.450 baris per snapshot (bila penulisannya tidak terpotong) |
-| GBFS `station_information` | Referensi harian | 2.506 stasiun |
+| GBFS `station_information` | Referensi harian | 2.520 stasiun |
 
 **Catatan pemilihan data.** Jan–Mar dipilih karena volume terkecil dalam
 setahun, sehingga hemat kuota query. Konsekuensinya data berasal dari **musim
@@ -152,9 +152,10 @@ Di atasnya ada **lapisan CDC snapshot-diff** (`int_station_status_changes` +
 `int_station_status_windows`) yang menyimpan hanya perubahan, sehingga bisa
 menjawab *berapa lama sebuah stasiun bertahan dalam kondisi berisiko*.
 
-Materialisasi: staging & intermediate `view`, marts `core` `table`, marts
-`dashboard` `view` — kecuali mart streaming yang di-auto-refresh tiap menit
-(dimaterialisasi `table` agar biaya pemindaiannya turun ~1000×).
+Materialisasi mengikuti **rasio build terhadap baca**: staging & intermediate
+`view` (dibaca jarang), marts `core` & `dashboard` `table` (dibangun sekali,
+dibaca berulang oleh BI). Satu pengecualian, `station_volatility`, tetap `view`
+agar selalu mengikuti arsip perubahan yang diperbarui tiap jam.
 
 Rincian: [`docs/erd.md`](docs/erd.md)
 
@@ -194,7 +195,7 @@ Ambang dan pembatas alert diatur lewat variabel lingkungan di `.env`
 
 ## Hasil Verifikasi
 
-Potret **2026-09-18** dari project `jcdeah-009`.
+Potret **2026-09-20** dari project `jcdeah-009`.
 
 | Metrik | Nilai | Sifat |
 |---|---|---|
@@ -202,10 +203,10 @@ Potret **2026-09-18** dari project `jcdeah-009`.
 | Trip valid (`fct_trips`) | 5.952.072 (99,51%) | Tetap |
 | Trip dikarantina | 29.516 (0,49%) | Tetap |
 | Stasiun (`dim_station`) | 2.285 id kanonik | Tetap |
-| `dim_date` | 269 hari (buffer 7 hari) | Bertambah tiap hari |
-| `fct_station_status` | 950.321 baris (485 snapshot) | Bertambah saat streaming hidup |
-| `int_station_status_changes` | 65.300 baris (6,9% dari fct) | Bertambah saat streaming hidup |
-| `dbt test` | **119 lulus, 0 gagal** | Terakhir dijalankan sebelum penambahan lapisan CDC |
+| `dim_date` | 271 hari (buffer 7 hari) | Bertambah tiap hari |
+| `fct_station_status` | 954.345 baris (487 snapshot) | Bertambah saat streaming hidup |
+| `int_station_status_changes` | 73.244 baris (7,67% dari fct) | Bertambah saat streaming hidup |
+| `dbt test` | **125 lulus, 0 gagal** | Termasuk test mart operasional & volatilitas |
 | Kafka consumer lag | 0 | Diukur saat streaming berjalan |
 | Watchdog streaming | 4/4 pemeriksaan sehat | Diukur saat streaming berjalan |
 
@@ -224,7 +225,7 @@ Potret **2026-09-18** dari project `jcdeah-009`.
 
 | Dokumen | Isi |
 |---|---|
-| [`docs/architecture.md`](docs/architecture.md) | Arsitektur, layer data, dimensional model, alert, lapisan CDC |
+| [`docs/architecture.md`](docs/architecture.md) | Arsitektur: gambaran end-to-end, dua alur, layer data, data quality, pemantauan |
 | [`docs/erd.md`](docs/erd.md) | ERD dan penjelasan relasi antar tabel |
 | [`docs/runbook.md`](docs/runbook.md) | Setup, operasional harian, troubleshooting |
 | [`metabase/README.md`](metabase/README.md) | Cara membangun dashboard |

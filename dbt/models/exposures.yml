@@ -1,0 +1,63 @@
+version: 2
+
+# ============================================================
+# Exposures — konsumen yang berada DI LUAR dbt
+#
+# Tanpa blok ini, dua model intermediate terlihat seperti dead-end di lineage:
+# tidak ada model dbt yang membacanya. Padahal keduanya terpakai — hanya saja
+# oleh Airflow dan oleh query manual, bukan oleh model lain.
+# ============================================================
+
+exposures:
+  - name: dwell_time_analysis
+    label: "Analisis dwell time (query manual)"
+    type: analysis
+    maturity: medium
+    owner:
+      name: Data Engineering
+    description: >
+      int_station_status_windows adalah analytical endpoint. Konsumennya query
+      manual di runbook untuk menjawab "berapa lama sebuah stasiun bertahan
+      kosong" — pertanyaan yang tidak bisa dijawab periodic snapshot murni.
+      Ia sengaja tidak dibaca model dbt mana pun; exposure ini membuat
+      perannya eksplisit di lineage, bukan terlihat sebagai model menggantung.
+    depends_on:
+      - ref('int_station_status_windows')
+
+  - name: quarantine_gate_airflow
+    label: "Gate DQ Airflow (check_quarantine_surge)"
+    type: application
+    maturity: high
+    owner:
+      name: Data Engineering
+    description: >
+      Task check_quarantine_surge membaca ringkasan ini untuk menghentikan
+      transformasi bila rasio karantina melonjak, dan Airflow membacanya lewat
+      konstanta TABLE_INT_TRIPS_DQ_SUMMARY. Karena konsumennya Airflow dan bukan
+      model dbt, model ini tampak dead-end di lineage tanpa exposure.
+    depends_on:
+      - ref('int_trips_dq_summary')
+
+  - name: metabase_batch_dashboard
+    label: "Metabase — dashboard batch (chart 1-4)"
+    type: dashboard
+    maturity: high
+    owner:
+      name: Data Engineering
+    depends_on:
+      - ref('trip_summary_daily')
+      - ref('station_popularity')
+      - ref('usage_pattern_hourly')
+      - ref('member_vs_casual_behavior')
+
+  - name: metabase_streaming_dashboard
+    label: "Metabase — dashboard streaming (chart 5-8)"
+    type: dashboard
+    maturity: high
+    owner:
+      name: Data Engineering
+    depends_on:
+      - ref('station_availability_realtime')
+      - ref('station_risk_monitoring')
+      - ref('station_supply_demand')
+      - ref('station_volatility')

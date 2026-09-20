@@ -22,13 +22,33 @@
 --   tidak peduli snapshot mana yang lengkap, dan tidak lagi bergantung pada
 --   fct_station_status sama sekali.
 --
--- - `insert_overwrite` + `copy_partitions=True`. Adapter BigQuery hanya
---   menerima 'merge' dan 'insert_overwrite'; `merge` memindai ~130 MiB per run
---   (~94 GB/bulan) hanya untuk menuliskan 0 baris. Tanpa `copy_partitions`,
---   insert_overwrite MENGGANTI seluruh partisi yang tersentuh.
+-- - `merge` dengan `unique_key`, BUKAN `insert_overwrite`. Ini pernah salah
+--   dan merusak data: `insert_overwrite` mengganti SELURUH partisi yang
+--   tersentuh dengan output query, sedangkan model ini hanya mengeluarkan baris
+--   BARU. Setiap run kedua yang menulis tanggal kalender yang sama menghapus
+--   hasil run pertama.
 --
--- - Idempotensi bergantung pada filter `snapshot_timestamp > batas`, bukan
---   kunci unik. Duplikat ditangkap test unique_combination_of_columns.
+--   Terverifikasi 2026-09-20: partisi 2026-09-18 kehilangan 5.494 dari 9.990
+--   perubahan (55%) karena dua run menulis tanggal itu; arsip menyimpan pukul
+--   10:00-10:36 sedangkan fct punya 09:11-10:36. Tanggal lain utuh karena
+--   masing-masing hanya disentuh satu run.
+--
+--   `copy_partitions=True` TIDAK menyelesaikan ini -- ia hanya mencegah
+--   partisi LAIN yang tidak tersentuh ikut terhapus. Karena itu strateginya
+--   diganti, bukan sekadar ditambahi flag.
+--
+--   Biaya `merge` sekarang wajar: terukur 15,2 MiB saat tidak ada baris baru
+--   dan ~28 MiB saat ada. Angka 130 MiB yang dulu dijadikan alasan memilih
+--   insert_overwrite sudah tidak berlaku setelah kolom metadata dibawa sejak
+--   CTE sumber.
+--
+-- - `unique_key` = (gbfs_station_id, valid_from), pasangan yang sama yang dijaga
+--   test unique_combination_of_columns. Itu memang kunci alaminya: satu stasiun
+--   tidak bisa punya dua perubahan pada timestamp yang sama.
+--
+-- - Idempotensi tetap dijaga filter `snapshot_timestamp > batas`. Filter itu yang
+--   mencegah pemrosesan ulang; `unique_key` yang mencegah penggandaan bila
+--   filter meleset.
 --
 -- - Test `assert_station_status_changes_single_create` menjaga invariant satu
 --   op='c' per stasiun. Bila gagal, jalankan `--full-refresh` sekali: baris
@@ -39,8 +59,8 @@
 
 {{ config(
     materialized='incremental',
-    incremental_strategy='insert_overwrite',
-    copy_partitions=True,
+    incremental_strategy='merge',
+    unique_key=['gbfs_station_id', 'valid_from'],
     partition_by={'field': 'snapshot_date', 'data_type': 'date'},
     cluster_by=['gbfs_station_id']
 ) }}

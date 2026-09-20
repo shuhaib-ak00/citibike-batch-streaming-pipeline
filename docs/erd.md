@@ -190,62 +190,183 @@ Konsekuensinya: trip dan status stasiun hanya dapat dibandingkan lewat
 
 ```mermaid
 flowchart TD
-    rt["raw.trips"] --> st["stg_trips"]
-    rt --> sid["stg_station_id_mapping<br/>(table)"]
+    subgraph RAW["layer raw"]
+        rt["trips"]
+        rss["station_status"]
+        ri["station_information"]
+    end
+
+    subgraph STG["staging"]
+        st["stg_trips"]
+        sid["stg_station_id_mapping<br/>(table)"]
+        str["stg_trips_rejected"]
+        ss["stg_station_status"]
+        ssr["stg_station_status_rejected"]
+    end
+
+    subgraph INT["intermediate"]
+        ids["int_stations_deduplicated"]
+        dq["int_trips_dq_summary"]
+        isb["int_station_id_bridge<br/>(table)"]
+        isr["int_station_risk_calculation"]
+        ilcs["int_latest_complete_snapshot"]
+        isc["int_station_status_changes<br/>(incremental)"]
+        isw["int_station_status_windows"]
+        isd["int_station_demand_vs_supply"]
+    end
+
+    subgraph CORE["marts/core"]
+        ddm["dim_date"]
+        dsm["dim_station"]
+        drt["dim_rider_type"]
+        ft["fct_trips"]
+        fss["fct_station_status"]
+    end
+
+    subgraph DASH["marts/dashboard"]
+        m1["trip_summary_daily"]
+        m2["station_popularity"]
+        m3["usage_pattern_hourly"]
+        m4["member_vs_casual_behavior"]
+        m5["station_availability_realtime"]
+        m6["station_risk_monitoring"]
+        m7["station_supply_demand"]
+        m8["station_volatility<br/>(view)"]
+    end
+
+    e1["exposure: gate DQ Airflow"]
+    e2["exposure: analisis dwell time"]
+    e3["exposure: Metabase<br/>(chart 1-4)"]
+    e4["exposure: Metabase<br/>(chart 5-8)"]
+
+    rt --> st
+    rt --> sid
+    rt --> str
     sid --> st
-    rt --> str["stg_trips_rejected"]
-    rss["raw.station_status"] --> ss["stg_station_status"]
-    rss --> ssr["stg_station_status_rejected"]
-    st --> ids["int_stations_deduplicated"]
-    st --> dq["int_trips_dq_summary"]
-    ids --> isb["int_station_id_bridge<br/>(table)"]
-    ri["raw.station_information"] -->|"short_name"| isb
-    isb --> dsm["dim_station"]
-    st --> ft["fct_trips"]
-    dsm --> ft
-    ss --> isr["int_station_risk_calculation"]
+    rss --> ss
+    rss --> ssr
+
+    st --> ids
+    st --> dq
+    st --> ft
+    st --> ddm
+    ids --> isb
+    ri -->|"short_name"| isb
+    isb --> dsm
+
+    ss --> isr
+    ss --> ddm
     isb --> isr
-    isr --> fss["fct_station_status"]
-    fss --> ilcs["int_latest_complete_snapshot"]
-    fss --> isc["int_station_status_changes<br/>(incremental)"]
-    isc --> isw["int_station_status_windows"]
-    fss --> marts["marts/dashboard"]
-    isd["int_station_demand_vs_supply"] --> marts
-    ft --> isd
+    isr --> fss
     isr --> isd
+    fss --> ilcs
+    fss --> isc
+    isc --> isw
+    isc --> m8
+    ft --> isd
+    ilcs --> isd
+
+    ft --> m1
+    ft --> m3
+    ft --> m4
+    ddm --> m1
+    ddm --> m3
+    ddm --> m4
+    drt --> m4
+    isd --> m2
+    isd --> m7
+    fss --> m5
+    fss --> m6
+    ilcs --> m5
+    ilcs --> m6
+
+    dq --> e1
+    isw --> e2
+    m1 --> e3
+    m2 --> e3
+    m3 --> e3
+    m4 --> e3
+    m5 --> e4
+    m6 --> e4
+    m7 --> e4
+    m8 --> e4
 ```
 
-`int_station_id_bridge` adalah titik pertemuan riwayat trip dan feed GBFS.
-Sejak pemisahan itu, `int_station_risk_calculation` tidak lagi membaca
-`dim_station`, sehingga di jalur ini layer intermediate tidak lagi bergantung
-pada marts/core.
+**Tiga hal yang perlu dibaca dari diagram itu.**
 
-Tiga edge sejenis masih tersisa — `int_latest_complete_snapshot` dan
-`int_station_status_changes` membaca `fct_station_status`, dan
-`int_station_demand_vs_supply` membaca `fct_trips`. Karena itu eksekusi dbt
-belum dapat diurutkan per tag, dan DAG menjalankan
-`dbt run --exclude tag:staging` dalam satu perintah lalu membiarkan dbt
-menentukan urutannya.
+**1. Jalur batch dan streaming bertemu di `int_station_demand_vs_supply`.**
+Hanya satu model yang menyatukan keduanya: permintaan historis (`fct_trips`)
+dipertemukan dengan pasokan terkini (`int_station_risk_calculation`). Dua mart
+yang membacanya — `station_popularity` dan `station_supply_demand` — adalah
+satu-satunya tempat angka batch dan streaming dibandingkan.
+
+**2. `fct_trips` punya foreign key ke `dim_station`, tetapi tidak membaca
+tabelnya.** Kunci surrogate dibangkitkan langsung dari `start_station_id` dan
+`end_station_id` di dalam model itu sendiri, dengan fungsi yang sama seperti di
+`dim_station`. Jadi nilainya pasti cocok tanpa perlu join, dan test
+`relationships` yang menjaganya. Inilah sebabnya tidak ada panah
+`dim_station → fct_trips` di diagram — hubungannya di tingkat **data**, bukan
+tingkat **build**. Hal serupa berlaku untuk `dim_rider_type`, yang isinya
+dibangkitkan langsung di dalam model (dua nilai tetap: `member` dan `casual`)
+sehingga tidak punya sumber di layer raw.
+
+**3. Dua node yang tampak menggantung sebenarnya punya konsumen.** `dq`
+(`int_trips_dq_summary`) dibaca task Airflow `check_quarantine_surge`, dan `isw`
+(`int_station_status_windows`) dibaca query manual di runbook. Keduanya
+didaftarkan sebagai **exposure** supaya perannya terlihat di lineage —
+tanpa itu keduanya tampak seperti dead-end.
+
+**Kenapa eksekusi dbt tidak diurutkan per tag.** Tiga edge melawan arah layer:
+`int_latest_complete_snapshot` dan `int_station_status_changes` membaca
+`fct_station_status`, dan `int_station_demand_vs_supply` membaca `fct_trips`.
+Karena itu DAG menjalankan `dbt run --exclude tag:staging` dalam satu perintah,
+lalu membiarkan dbt menentukan urutannya sendiri.
+
+> Sebelum pemisahan `int_station_id_bridge`, ada satu edge lagi yang melawan
+> arah: `int_station_risk_calculation` membaca `dim_station`. Jalur itu kini
+> lurus — model intermediate membaca tabel intermediate yang juga dipakai
+> `dim_station`, bukan dimensinya.
 
 ---
 
 ## 6. Materialisasi
 
+Keputusan materialisasi mengikuti **rasio build terhadap baca**. BigQuery menagih
+bytes yang dipindai, bukan jumlah query, sehingga model yang dibangun sekali lalu
+dibaca berkali-kali lebih baik disimpan.
+
 | Layer | Materialisasi | Alasan |
 |---|---|---|
-| Staging | **view** | Hemat storage; dihitung saat dipakai |
+| Staging | **view** | Dibaca jarang — hanya saat model di atasnya dipakai |
 | Intermediate | **view** | Sama |
-| Marts core | **table** | Dipakai berulang; jadi dasar foreign key |
-| Marts dashboard | **view** | Selalu segar mengikuti core |
+| Marts (core & dashboard) | **table** | Dibangun sekali per `dbt run`, lalu dibaca berulang oleh BI |
 
 **Pengecualian, beserta alasannya:**
 
 | Model | Materialisasi | Alasan |
 |---|---|---|
 | `stg_station_id_mapping` | **table** | Dipakai 2× oleh `stg_trips`; kalau view akan memindai raw 1,1 GiB dua kali |
-| `int_station_id_bridge` | **table** | Dibaca `int_station_risk_calculation` tiap jam; kalau view, pemindaian riwayat trip (1,1 GiB) terulang tiap jam |
-| `station_availability_realtime`, `station_risk_monitoring`, `station_supply_demand` | **table** | Di-auto-refresh tiap menit; kalau view, 1.440 refresh/hari menghabiskan kuota 1 TiB dalam ±3 hari |
-| `int_station_status_changes` | **incremental** | Arsip perubahan; harus bertahan walau sumbernya dipangkas retensi |
+| `int_station_id_bridge` | **table** | Dibaca `int_station_risk_calculation` tiap jam; kalau view, pemindaian riwayat trip (1,1 GiB) terulang 24× sehari |
+| `station_volatility` | **view** | Sumbernya arsip perubahan yang diperbarui DAG streaming tiap jam, sedangkan model ini dibangun DAG harian. Sebagai table ia akan basi sampai 24 jam |
+| `int_station_status_changes` | **incremental** (`merge`) | Arsip perubahan; menyimpan hanya yang berubah sehingga ±13× lebih kecil daripada snapshot penuh. `merge` dipakai agar run berikutnya tidak menghapus baris run sebelumnya di tanggal yang sama |
+
+**Angka yang mendasari pilihan table untuk mart batch.** Diukur saat konversi:
+
+| Mart | Baris hasil | Bytes dipindai saat build |
+|---|---|---|
+| `trip_summary_daily` | 90 | 316,3 MiB |
+| `member_vs_casual_behavior` | 2 | 310,6 MiB |
+| `station_popularity` | 2.285 | 253,8 MiB |
+| `usage_pattern_hourly` | 168 | 181,6 MiB |
+
+Sekitar **1,06 GiB per hari** untuk membangun keempatnya — dibanding jumlah yang
+sama **setiap kali** dashboard dibuka bila dijadikan view. Karena dashboard
+dibuka berkali-kali sehari sementara dibangun sekali, table lebih murah meski
+yang disimpan hanya 90–2.285 baris.
+
+> Ketiga mart streaming (`station_availability_realtime`, `station_risk_monitoring`,
+> `station_supply_demand`) alasannya lebih kuat lagi: kartunya di-auto-refresh
+> tiap menit, sehingga sebagai view berarti 1.440 pemindaian penuh per hari.
 
 ---
 
@@ -256,7 +377,7 @@ antar tabel.
 
 ### 7.1 `capacity` NULL ≠ 0
 
-26 stasiun dilaporkan GBFS berkapasitas **0**, dan satu stasiun
+24 stasiun dilaporkan GBFS berkapasitas **0**, dan satu stasiun
 (`E 1 St & Bowery`) berkapasitas **1** padahal rutin menampung puluhan sepeda.
 
 Kalau 0 dipakai apa adanya, `occupancy_rate_pct` menjadi bagi-nol. Karena itu:
@@ -293,7 +414,7 @@ Nilai NULL, bukan hash dari string kosong. Bila di-hash, kunci itu tidak akan
 ditemukan di dimensi dan test `relationships` gagal — sedangkan NULL dilewati
 test tersebut, sehingga maknanya terjaga.
 
-Kasus serupa muncul di lapisan delta: `station_key` NULL untuk 82.531 baris
+Kasus serupa muncul di lapisan delta: `station_key` NULL untuk 94.169 baris
 (9,9%), sehingga `int_station_status_changes` memakai `gbfs_station_id` sebagai
 kunci perbandingan. Bila `station_key` dipakai, semua baris NULL masuk satu
 partisi `LAG()` dan perubahan antar stasiun berbeda tercampur.
@@ -302,7 +423,7 @@ partisi `LAG()` dan perubahan antar stasiun berbeda tercampur.
 
 ## 8. Angka nyata
 
-Potret **2026-09-18** dari project `jcdeah-009`.
+Potret **2026-09-20** dari project `jcdeah-009`.
 
 | Entitas | Jumlah baris | Sifat |
 |---|---|---|
@@ -310,12 +431,12 @@ Potret **2026-09-18** dari project `jcdeah-009`.
 | `stg_trips` (valid) | 5.952.072 | Tetap |
 | `stg_trips_rejected` | 29.516 | Tetap |
 | `dim_station` | **2.285** | Tetap |
-| `dim_date` | 269 hari (2025-12-31 … 2026-09-25) | Bertambah tiap hari |
+| `dim_date` | 271 hari (2025-12-31 … 2026-09-27) | Bertambah tiap hari |
 | `dim_rider_type` | 2 | Tetap |
 | `fct_trips` | 5.952.072 | Tetap |
-| `fct_station_status` | 950.321 (485 snapshot) | Bertambah saat streaming hidup |
-| `int_station_status_changes` | 65.300 (6,9% dari fct) | Bertambah saat streaming hidup |
-| `int_station_status_windows` | 65.300 | Mengikuti arsip perubahan |
+| `fct_station_status` | 954.345 (487 snapshot) | Bertambah saat streaming hidup |
+| `int_station_status_changes` | 73.244 (7,67% dari fct) | Bertambah saat streaming hidup |
+| `int_station_status_windows` | 73.244 | Mengikuti arsip perubahan |
 
 **Rincian `dim_station`** — tiga angka ini mudah tertukar:
 
@@ -323,21 +444,22 @@ Potret **2026-09-18** dari project `jcdeah-009`.
 |---|---|
 | **2.285** | id kanonik total di dimensi |
 | **2.247** | di antaranya cocok dengan feed GBFS (38 sisanya tidak ada di feed) |
-| **2.221** | di antaranya benar-benar punya `capacity` — selisih 26 dilaporkan GBFS berkapasitas 0 sehingga diperlakukan NULL (lihat §7.1) |
+| **2.223** | di antaranya benar-benar punya `capacity` — selisih 24 dilaporkan GBFS berkapasitas 0 sehingga diperlakukan NULL (lihat §7.1) |
 
 **Rekonsiliasi yang dijaga test:**
 `raw = valid + rejected` ✓ · `fct_trips = valid` ✓
 
 > Angka dari riwayat trip bersifat final; `dim_date`, `fct_station_status`, dan
 > arsip perubahan bertambah selama streaming berjalan sehingga nilainya adalah
-> potret satu waktu.
+> potret satu waktu. Angka `dim_station` juga bergerak mengikuti feed GBFS:
+> kapasitas stasiun dapat berubah saat operator memperbarui referensinya.
 
 ---
 
 ## 9. Katalog kolom per layer
 
 Bagian §2 dan §3 di atas menampilkan **diagram** relasi. Bagian ini adalah
-**katalog lengkap**-nya: seluruh 30 objek di lima layer, dengan grain, penulis,
+**katalog lengkap**-nya: seluruh 31 objek di lima layer, dengan grain, penulis,
 materialisasi, dan daftar kolomnya.
 
 Daftar kolom di bawah diambil dari `INFORMATION_SCHEMA.COLUMNS` BigQuery —
@@ -350,7 +472,7 @@ yang bisa tertinggal saat model berubah.
 | Staging | `shuhaib_citibike_staging` | 5 model | 4 view + 1 table | dbt |
 | Intermediate | `shuhaib_citibike_intermediate` | 8 model | 6 view + 1 table + 1 incremental | dbt |
 | Marts/core | `shuhaib_citibike_marts` | 5 tabel | table | dbt |
-| Marts/dashboard | `shuhaib_citibike_dashboard` | 7 model | 4 view + 3 table | dbt |
+| Marts/dashboard | `shuhaib_citibike_dashboard` | 8 model | 1 view + 7 table | dbt |
 
 Di tabel kolom di bawah, penanda yang dipakai:
 
@@ -426,7 +548,7 @@ untuk `dim_station`.
 | `eightd_has_key_dispenser` | BOOL | metadata operator |
 | `_ingested_at` | TIMESTAMP | waktu load |
 
-> Tabel ini tidak dipartisi karena kecil (2.519 baris) dan selalu dibaca utuh.
+> Tabel ini tidak dipartisi karena kecil (2.520 baris) dan selalu dibaca utuh.
 
 #### `station_status_dlq` — 6 kolom · PARTITION `DATE(failed_at)`
 
@@ -507,7 +629,7 @@ ditambah dua:
 
 #### `stg_station_id_mapping` — 8 kolom · **table** (bukan view)
 
-Pemetaan setiap `station_id` → id kanonik (§5.1). Dibangun dari **raw**,
+Pemetaan setiap `station_id` → id kanonik (§4). Dibangun dari **raw**,
 bukan dari `stg_trips`, agar tidak sirkular.
 
 | Kolom | Tipe | Peran |
@@ -671,16 +793,20 @@ Satu baris saja: timestamp snapshot terakhir yang **lengkap**.
 | `snapshot_timestamp` | TIMESTAMP | snapshot terakhir yang lolos ambang |
 | `min_complete_stations` | INT64 | ambang yang dipakai (95% dari snapshot terbesar) |
 
-> Model ini ada karena temuan dari data nyata: **286 dari 485 snapshot (59%)
+> Model ini ada karena temuan dari data nyata: **287 dari 487 snapshot (58,9%)
 > terpotong** karena penulisan consumer terputus di tengah snapshot. Mart yang
 > memakai "snapshot terakhir" secara buta akan menampilkan peta nyaris kosong.
 > Ambangnya **relatif terhadap data**, bukan angka tetap, sehingga tidak perlu
 > disesuaikan bila jumlah stasiun berubah.
 
-#### `int_station_status_changes` — 24 kolom · **incremental** (`insert_overwrite` + `copy_partitions`)
+#### `int_station_status_changes` — 24 kolom · **incremental** (`merge` + `unique_key`)
 
 Arsip CDC snapshot-diff (§8). Grain: 1 baris per **perubahan nyata**
 per stasiun. PARTITION `snapshot_date` · CLUSTER `gbfs_station_id`.
+
+`unique_key` = `(gbfs_station_id, valid_from)`, pasangan yang sama yang dijaga
+test `unique_combination_of_columns` — kunci alaminya: satu stasiun tidak bisa
+punya dua perubahan pada timestamp yang sama.
 
 | Kelompok | Kolom |
 |---|---|
@@ -736,9 +862,8 @@ berisiko di peta" tidak perlu menyentuh dimensi.
 
 ### 9.5 Marts/dashboard — `shuhaib_citibike_dashboard`
 
-Tujuh mart siap konsumsi BI, satu untuk setiap chart. Yang batch bermaterialisasi
-**view** (aman, data berubah hanya setelah `dbt run`); yang streaming
-**table** karena di-auto-refresh tiap menit.
+Delapan mart siap konsumsi BI, satu untuk setiap chart. Tujuh di antaranya
+**table** dan satu **view** (`station_volatility`); alasan lengkapnya di §6.
 
 #### Mart batch (chart 1–4)
 
@@ -757,10 +882,36 @@ Tujuh mart siap konsumsi BI, satu untuk setiap chart. Yang batch bermaterialisas
 | `station_risk_monitoring` (19) | `gbfs_station_id`, `legacy_station_id`, `station_key`, `station_name`, `region_id`, `lat`, `lng`, `capacity`, `last_snapshot_at`, `last_reported`, `report_age_seconds`, `num_bikes_available`, `num_docks_available`, `occupancy_rate_pct`, `risk_level`, `risk_severity`, `recommended_action`, `bikes_to_move`, `risk_rank` | 1 baris per stasiun berisiko |
 | `station_supply_demand` (22) | `station_id`, `station_name`, `region_id`, `lat`, `lng`, `departure_count`, `arrival_count`, `total_activity`, `net_flow`, `activity_rank`, `demand_pressure_rank`, `activity_share`, `capacity`, `num_bikes_available`, `num_docks_available`, `occupancy_rate_pct`, `risk_level`, `imbalance_pct`, `last_snapshot_at`, `is_priority_supply`, `is_priority_drain`, `imbalance_direction` | 1 baris per stasiun |
 
+#### Mart dari lapisan perubahan (chart 8) — **view**
+
+| Model | Kolom | Grain |
+|---|---|---|
+| `station_volatility` (11) | `gbfs_station_id`, `legacy_station_id`, `station_name`, `change_count`, `update_count`, `bikes_moved`, `docks_moved`, `total_moved`, `first_change_at`, `last_change_at`, `span_hours`, `changes_per_hour`, `volatility_label`, `movement_rank` | 1 baris per stasiun |
+
+> Satu-satunya mart yang membaca arsip perubahan, bukan snapshot. Snapshot
+> merekam kondisi tiap polling — mayoritas barisnya identik dengan polling
+> sebelumnya — sehingga menghitung pergerakan dari sana berarti menghitung
+> baris, bukan perubahan.
+>
+> `total_moved` adalah **nilai absolut** (sepeda+dock yang bergerak), bukan
+> selisih bersih: stasiun yang 10 → 5 → 10 dihitung 10. `volatility_label`
+> memakai **peringkat persentil**, bukan ambang tetap, supaya tetap bermakna
+> bila kecepatan polling berubah.
+>
+> Mart ini sengaja **tidak** memakai `duration_minutes`. Kolom itu selalu
+> terpotong oleh definisi `is_possible_gap` (interval > 10 menit dianggap celah
+> data), sehingga angka "durasi maksimum" pada dasarnya adalah batas saringan,
+> bukan temuan. Lihat §8 batas yang perlu disadari.
+>
+> **View, bukan table.** Sumbernya diperbarui DAG streaming tiap jam sementara
+> model ini dibangun DAG harian — sebagai table ia akan basi sampai 24 jam.
+> Ini satu-satunya mart yang tidak mengikuti default table (§6).
+
 Perhatikan pola umum mart dashboard: **identitas + angka + label keputusan**.
-`availability_label`, `recommended_action`, `imbalance_direction` semuanya
-kolom teks siap tampil, supaya chart tidak perlu `CASE WHEN` di dalam query BI.
-Logika bisnis tetap di dbt, bukan di tool visualisasi.
+`availability_label`, `recommended_action`, `imbalance_direction`, dan
+`volatility_label` semuanya kolom teks siap tampil, supaya chart tidak perlu
+`CASE WHEN` di dalam query BI. Logika bisnis tetap di dbt, bukan di tool
+visualisasi.
 
 ---
 
@@ -801,6 +952,14 @@ Bandingkan sendiri di repo ini:
 
 Karena itu tabel berukuran ~2.450 baris yang di-refresh tiap menit **wajib**
 table, sementara staging yang jarang dibaca **sebaiknya** view.
+
+**Yang perlu diperhatikan: mart batch menguntungkan dengan arah yang sama,
+meski tanpa auto-refresh.** Empat mart batch dibangun sekali sehari tetapi
+dibaca berkali-kali; sebagai view, tiap kali dashboard dibuka berarti memindai
+ulang `fct_trips` (5,9 juta baris). Totalnya ±1,06 GiB per hari untuk membangun
+keempatnya, dibanding jumlah yang sama **setiap kali** dibuka. Pelajarannya:
+**biaya view ditentukan oleh berapa kali dibaca, bukan oleh seberapa besar
+hasilnya** — hasil 90 baris pun bisa mahal kalau dihitung ulang terus.
 
 **3. Jangan pernah membuang data diam-diam.**
 
@@ -862,7 +1021,8 @@ diperbaiki — bukan kekhawatiran teoretis.
 |---|---|---|
 | `PARTITION BY` pada kolom yang bisa NULL | 82.183 dari 139.582 baris (59%) salah | Di BigQuery semua NULL masuk **satu** partisi, bukan diabaikan. Kunci diff harus kolom yang tidak pernah NULL (`gbfs_station_id`). |
 | Benih CDC dari satu snapshot | 3 stasiun dapat `op='c'` palsu | Snapshot batas tidak selalu lengkap. Ambil benih **per stasiun** dari tabel tujuan. |
-| `insert_overwrite` tanpa `copy_partitions` | partisi yang tersentuh **diganti**, baris lain di tanggal sama terhapus | Pada adapter BigQuery, `copy_partitions=True` wajib. |
+| `insert_overwrite` pada model yang hanya mengeluarkan baris baru | 5.494 dari 9.990 perubahan (55%) di satu tanggal terhapus | `insert_overwrite` mengganti **seluruh** partisi yang tersentuh, bukan menggabungkannya. `copy_partitions=True` hanya melindungi partisi lain yang tidak tersentuh — ia **tidak** menyelesaikan penggantian partisi yang sama. Untuk model append-only, pakai `merge` + `unique_key`. |
+| Test yang hanya memeriksa duplikat | `op='c'` hilang di satu stasiun tidak tertangkap selama berhari-hari | Idempotensi dan kelengkapan itu berbeda. Filter incremental memberi idempotensi; kelengkapan butuh test tersendiri, mis. membandingkan jumlah baris dengan sumbernya. |
 | Join metadata di akhir query | 130,2 MiB → 28,1 MiB setelah diperbaiki (4,6×) | Membawa kolom sejak CTE sumber mencegah tabel dipindai dua kali. |
 | "Tidak ada perubahan" vs "tidak ada data" | dwell time "3.964 menit" — seluruhnya artefak | Interval panjang bisa berarti streaming mati. Perlu kolom `is_possible_gap`. |
 | Snapshot terakhir dipakai apa adanya | peta nyaris kosong | 59% snapshot terpotong. Perlu `int_latest_complete_snapshot` dengan ambang **relatif**. |
@@ -888,5 +1048,5 @@ data selalu lengkap.** Ketiganya soal *data*, bukan soal SQL.
 | DDL & pengaturan partisi raw | `sql/bigquery/01_raw_tables_ddl.sql` |
 | Penanganan khusus BigQuery (ISO weekday, idempotensi) | `dbt/macros/iso_day_of_week.sql`, `dags/common/bq_utils.py` |
 | Urutan eksekusi & gate kualitas | `dags/transform_dbt_batch.py`, `dags/transform_dbt_streaming.py` |
-| Alasan desain CDC | `docs/architecture.md` §8 |
+| Alasan desain CDC | `docs/architecture.md` §3.3 |
 | Tampilan dokumentasi per model | `dbt docs serve` (artefak dibuat DAG harian dari `dbt docs generate`) |

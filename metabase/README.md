@@ -8,7 +8,7 @@ Metabase berjalan self-host lewat `docker-compose.yml`
 | Dokumen | Isi |
 |---|---|
 | [`dashboard_batch.md`](dashboard_batch.md) | Chart 1–4 dari data batch (tren, popularitas, pola jam, segmen pengguna) |
-| [`dashboard_streaming.md`](dashboard_streaming.md) | Chart 5–7 dari data streaming (peta live, tabel risiko, supply vs demand) |
+| [`dashboard_streaming.md`](dashboard_streaming.md) | Chart 5–8 dari data streaming (peta live, tabel risiko, supply vs demand, stasiun fluktuatif) |
 
 ## 1. Akses
 
@@ -41,17 +41,21 @@ Langkah:
 ## 3. Auto-refresh (untuk chart streaming)
 
 Chart 5–7 perlu terlihat "hidup" saat demo, jadi butuh auto-refresh.
+Chart 8 **tidak perlu** — ia dihitung dari arsip perubahan yang hanya
+diperbarui DAG harian/jam-an, jadi angkanya memang tidak berubah per menit.
 
 1. Buka dashboard → **...** → **Edit dashboard**.
 2. Set **Auto-refresh** ke **1 minute**.
 3. Simpan.
 
-Ini aman dari sisi biaya karena mart streaming dimaterialisasi sebagai
+Ini aman dari sisi biaya karena mart yang di-auto-refresh dimaterialisasi sebagai
 **table** berisi ±2.400 baris, bukan view yang memindai riwayat. Rincian
 perhitungannya ada di [`dashboard_streaming.md`](dashboard_streaming.md).
 
 > ⚠️ Bila kelak mart streaming diubah menjadi view, biaya query akan
-> melonjak ratusan kali — interval auto-refresh harus disesuaikan.
+> melonjak ratusan kali — interval auto-refresh harus disesuaikan. Chart 8
+> sengaja tetap view karena sumbernya diperbarui tiap jam sementara ia dibangun
+> harian.
 
 ## 4. Refresh source data
 

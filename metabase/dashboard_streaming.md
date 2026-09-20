@@ -1,11 +1,12 @@
-# Dashboard Streaming (Metabase) — 3 Chart v1
+# Dashboard Streaming (Metabase) — 4 Chart v1
 
 Resep langkah demi langkah untuk chart **streaming**. Melengkapi
 [`dashboard_batch.md`](dashboard_batch.md) yang membahas chart batch.
 
 **Sumber data:** dataset `shuhaib_citibike_dashboard` (hasil dbt).
-Ketiga mart di sini adalah **tabel** (bukan view), dengan alasan yang dijelaskan
-di bagian [Auto-refresh](#auto-refresh-kenapa-murah).
+Chart 1-7 memakai mart ber-materialisasi **table**, sedangkan chart 8 memakai
+**view** — alasannya dijelaskan di bagian
+[Auto-refresh](#auto-refresh-kenapa-murah) dan di resep chart 8.
 
 ---
 
@@ -84,13 +85,13 @@ WHERE risk_level IN ('empty', 'low', 'high', 'full')
 
 | Label | risk_level | Jumlah | Rata-rata occupancy |
 |---|---|---|---|
-| Normal | balanced | 1.182 | 49,5% |
-| Sepeda sedikit | low | 417 | 10,5% |
-| Penuh | full | 320 | 83,6% |
-| Kapasitas tidak diketahui | unknown_capacity | 241 | — |
-| Dock sedikit | high | 194 | 86,6% |
-| Kosong | empty | 68 | 0,0% |
-| Tidak beroperasi | not_operational | 27 | 0,2% |
+| Normal | balanced | 1.211 | 51,0% |
+| Sepeda sedikit | low | 379 | 10,1% |
+| Penuh | full | 264 | 86,9% |
+| Dock sedikit | high | 250 | 86,7% |
+| Kapasitas tidak diketahui | unknown_capacity | 245 | — |
+| Kosong | empty | 57 | 0,0% |
+| Tidak beroperasi | not_operational | 34 | 0,0% |
 
 **Pengaturan warna yang disarankan** (Map settings → Marker color):
 
@@ -141,27 +142,33 @@ FROM `jcdeah-009.shuhaib_citibike_dashboard.station_risk_monitoring`
 ORDER BY risk_rank
 ```
 
-**Angka yang diharapkan:** 999 stasiun berisiko.
+**Angka yang diharapkan:** 950 stasiun berisiko.
 
 | Tindakan | Jumlah stasiun | Total sepeda | Rata-rata per stasiun |
 |---|---|---|---|
-| Tarik sepeda dari stasiun ini | 514 | 5.142 | 10,0 |
-| Kirim sepeda ke stasiun ini | 485 | 7.151 | 14,7 |
+| Tarik sepeda dari stasiun ini | 514 | 5.096 | 9,9 |
+| Kirim sepeda ke stasiun ini | 436 | 6.711 | 15,4 |
 
 **6 baris teratas** (contoh nyata):
 
 | # | Stasiun | Sepeda | Kapasitas | Occupancy | Status | Perlu pindah |
 |---|---|---|---|---|---|---|
-| 1 | E 40 St & Park Ave | 0 | 123 | 0,0% | empty | 62 |
-| 2 | E 24 St & Park Ave S | 0 | 79 | 0,0% | empty | 40 |
-| 3 | E 48 St & 5 Ave | 0 | 62 | 0,0% | empty | 31 |
-| 4 | E 33 St & 5 Ave | 0 | 60 | 0,0% | empty | 30 |
-| 5 | E 53 St & Madison Ave | 0 | 51 | 0,0% | empty | 26 |
-| 6 | N 10 St & Berry St | 0 | 47 | 0,0% | empty | 24 |
+| 1 | W 37 St & Broadway | 0 | 84 | 0,0% | empty | 42 |
+| 2 | W 51 St & 6 Ave | 0 | 81 | 0,0% | empty | 41 |
+| 3 | 6 Ave & W 33 St | 0 | 78 | 0,0% | empty | 39 |
+| 4 | Madison Ave & E 26 St | 0 | 75 | 0,0% | empty | 38 |
+| 5 | W 52 St & 5 Ave | 0 | 61 | 0,0% | empty | 31 |
+| 6 | E 63 St & 3 Ave | 0 | 57 | 0,0% | empty | 29 |
 
-> **Insight:** lima teratas adalah stasiun di kawasan **perkantoran Midtown
-> Manhattan** — persis pola pada problem statement: stasiun perkantoran
-> kehabisan sepeda. Inilah alasan tim ops perlu metrik otomatis.
+> **Insight:** lima teratas semuanya berada di **pusat kota Manhattan** —
+> Garment District, Midtown, dan sekitarnya. Itu persis pola pada problem
+> statement: stasiun kawasan perkantoran kehabisan sepeda pada jam sibuk.
+> Inilah alasan tim ops perlu metrik otomatis.
+>
+> ⚠️ **Daftar ini bergerak setiap waktu.** Nama stasiunnya bisa berbeda dari
+> contoh di atas karena bergantung snapshot terakhir. Yang penting **polanya**:
+> stasiun perkantoran Manhattan dengan `num_bikes_available = 0`. Kalau yang
+> muncul bukan stasiun kawasan itu, sebutkan apa adanya — jangan dipaksakan.
 
 **Format tampilan:** aktifkan *Conditional Formatting → Color scale* pada
 `occupancy_pct` agar baris merah untuk kosong dan biru untuk penuh langsung
@@ -224,21 +231,21 @@ LIMIT 10
 
 | Arah ketidakseimbangan | Jumlah | Prioritas kirim | Prioritas tarik |
 |---|---|---|---|
-| Pasokan berlebih, permintaan rendah | 1.141 | 0 | 0 |
-| Permintaan tinggi, pasokan cukup | 449 | 0 | 0 |
-| Tarik sepeda (pasokan berlebih) | 424 | 0 | **424** |
-| Kirim sepeda (permintaan tinggi, pasokan rendah) | 225 | **225** | 0 |
+| Pasokan berlebih, permintaan rendah | 1.154 | 0 | 0 |
+| Permintaan tinggi, pasokan cukup | 471 | 0 | 0 |
+| Tarik sepeda (pasokan berlebih) | 411 | 0 | **411** |
+| Kirim sepeda (permintaan tinggi, pasokan rendah) | 203 | **203** | 0 |
 | Seimbang | 46 | 0 | 0 |
 
 **5 teratas prioritas pengiriman:**
 
 | net_flow | Occupancy | Status | Stasiun |
 |---|---|---|---|
-| +504 | 16,7% | low | Eastern Pkwy & Franklin Av |
-| +500 | 0,0% | empty | E 48 St & 5 Ave |
-| +472 | 0,0% | empty | President St & Nostrand Av |
-| +471 | 11,1% | low | Plaza St East & Flatbush Av |
-| +420 | 6,5% | low | Eastern Pkwy & Washington Av |
+| +564 | 13,8% | low | Broadway & Kosciuszko St |
+| +420 | 16,1% | low | Eastern Pkwy & Washington Av |
+| +329 | 11,1% | low | E 47 St & Park Ave |
+| +241 | 9,1% | low | Schenectady Ave & President St |
+| +231 | 8,9% | low | Broadway & W 58 St |
 
 ### ⚠️ Baca kolom peringkat, bukan angka absolut
 
@@ -253,6 +260,84 @@ Gunakan kolom relatif:
 
 Cara aman membacanya: bandingkan **peringkat** antar stasiun, bukan
 menyimpulkan "stasiun ini ramai" dari `total_activity` mentah.
+
+---
+
+## Chart 8 — Bar: Stasiun Paling Fluktuatif
+
+**Tujuan bisnis:** stasiun mana yang paling sering berubah dan paling banyak
+memindahkan sepeda — indikator langsung seberapa besar kebutuhan rebalancing
+harus dipusatkan ke sana.
+
+Ini satu-satunya chart yang membaca **arsip perubahan**, bukan snapshot.
+Snapshot merekam kondisi tiap polling (mayoritas barisnya identik dengan
+polling sebelumnya), sehingga menghitung pergerakan dari sana berarti
+menghitung baris, bukan perubahan.
+
+| Item | Nilai |
+|---|---|
+| Mart | `station_volatility` (**view**) |
+| Visualisasi | **Bar → Horizontal** |
+| X-axis | `bikes_moved` — bisa ditambah `docks_moved` sebagai stacked |
+| Y-axis | `station_name` |
+| Sort | `movement_rank` ascending |
+| Limit | 10 |
+| Tooltip | `change_count`, `changes_per_hour`, `volatility_label` |
+
+**Query (native):**
+
+```sql
+SELECT
+    station_name,
+    bikes_moved,
+    docks_moved,
+    total_moved,
+    change_count,
+    changes_per_hour,
+    volatility_label
+FROM `jcdeah-009.shuhaib_citibike_dashboard.station_volatility`
+ORDER BY movement_rank
+LIMIT 10
+```
+
+**Angka yang diharapkan** (patokan verifikasi):
+
+| Metrik | Nilai |
+|---|---|
+| Jumlah baris | 2.458 (satu per stasiun) |
+| Label `tenang` | ±1.721 (70%) |
+| Label `fluktuatif` | ±494 (20%) |
+| Label `sangat_fluktuatif` | ±243 (10%) |
+| Peringkat 1 | `W 43 St & 10 Ave` |
+
+**Tiga hal yang perlu dipahami saat menjelaskan chart ini:**
+
+1. **`total_moved` adalah nilai absolut, bukan selisih bersih.** Stasiun yang
+   10 → 5 → 10 dihitung 10 sepeda berpindah. Selisih bersih akan mencatat 0
+   dan menyembunyikan aktivitasnya — padahal 10 sepeda memang benar-benar
+   berpindah.
+
+2. **`changes_per_hour` ada supaya adil.** Stasiun yang baru muncul punya
+   rentang observasi lebih pendek, sehingga hitungan mentahnya tampak kecil
+   padahal belum tentu lebih tenang. Untuk stasiun dengan satu perubahan saja
+   kolom ini NULL — bukan nol.
+
+3. **`volatility_label` memakai peringkat persentil, bukan ambang tetap.**
+   Ambang seperti ">20 perubahan/jam" akan salah begitu kecepatan polling
+   berubah; potongan persentil tetap bermakna karena selalu relatif terhadap
+   data.
+
+> **Kenapa view, bukan table seperti chart 1-7?** Tujuh mart lain dibangun DAG
+> yang sama dengan sumber datanya, sehingga tidak pernah ada jeda antar
+> keduanya. Sumber mart ini justru diperbarui DAG streaming tiap jam, sementara
+> ia dibangun DAG harian — sebagai table ia akan tertinggal sampai 24 jam.
+> Perhitungannya juga murah (agregasi 73 ribu baris tanpa join), sehingga tidak
+> ada manfaat menyimpannya.
+
+> **Beberapa baris bernama "Stasiun tak terpetakan (...)".** Itu stasiun yang
+> ada di feed GBFS tetapi tidak punya riwayat trip, sehingga tidak ada di
+> `dim_station`. Namanya diisi dari potongan id supaya barisnya tetap terbaca
+> dan sekaligus menandai bahwa stasiun itu belum terpetakan.
 
 ---
 
@@ -290,7 +375,7 @@ terdistorsi nilai ekstrem. Terbukti dari data nyata:
 |---|---|---|
 | **Median** | **63 detik** | hampir semua stasiun melapor <1 menit |
 | Rata-rata | 14.576 detik (4 jam) | ← salah menggambarkan kenyataan |
-| Baris segar (≤10 menit) | 2.432 dari 2.449 (**99,3%**) | |
+| Baris segar (≤10 menit) | 2.429 dari 2.440 (**99,5%**) | |
 
 Penyebab distorsinya: beberapa stasiun non-operasional sudah lama berhenti
 melapor — yang terlama **2.589 jam (108 hari)**. Satu nilai ekstrem menarik
@@ -308,25 +393,31 @@ SELECT
 FROM `jcdeah-009.shuhaib_citibike_dashboard.station_availability_realtime`
 ```
 
-Angka yang diharapkan: `total 2.449`, `segar 2.432`, `basi 17`, `median 63`,
-`persen_basi 0,69`.
+Angka yang diharapkan: `total 2.440`, `segar 2.429`, `basi 11`, `median 158`,
+`persen_basi 0,45`.
 
 ---
 
 ## Menyusun Dashboard Streaming
 
 1. **New → Dashboard**, nama: `Citi Bike — Monitoring Operasional (Streaming)`
-2. Tambahkan question chart 5-7
+2. Tambahkan question chart 5-8
 3. Tata letak yang disarankan:
    - Baris 1: **Chart 5** (peta, lebar penuh) — konteks spasial
    - Baris 2: **Chart 6** (tabel risiko, lebar penuh) — daftar aksi
    - Baris 3: Chart 7 query A + query B (dua bar bersebelahan)
+   - Baris 4: **Chart 8** (bar horizontal, lebar penuh) — pola jangka menengah
 4. Tambahkan **Text card** berisi narasi:
    > *"Monitoring near real-time: kondisi ketersediaan sepeda per stasiun.
    > Data diperbarui tiap ±90 detik dari feed GBFS. Stasiun berisiko kosong
    > ditandai merah; tim ops mengirim sepeda ke stasiun tersebut."*
 5. Aktifkan auto-refresh 1 menit (lihat bagian Auto-refresh)
 6. **Save**
+
+> Chart 8 tidak ikut berubah tiap menit, karena dihitung dari arsip perubahan
+> yang hanya diperbarui DAG harian/jam-an. Itu memang tujuannya: chart 1-7
+> menjawab "apa yang terjadi sekarang", chart 8 menjawab "di mana pergerakan
+> terkonsentrasi".
 
 ---
 
@@ -339,7 +430,9 @@ Angka yang diharapkan: `total 2.449`, `segar 2.432`, `basi 17`, `median 63`,
 | Angka tidak berubah saat auto-refresh | Mart belum di-refresh dbt | Streaming mengisi *raw*; mart perlu `dbt run` untuk memperbarui |
 | "Tidak ada stasiun tanpa kapasitas" padahal ada | `capacity` NULL disaring di mart | Memang disengaja — occupancy tidak bisa dihitung tanpa kapasitas |
 | Kolom `region_id` kosong di sebagian baris | 250 stasiun tanpa region di feed GBFS | Normal; jangan dipakai sebagai filter wajib |
-| Peta padat tak terbaca | 2.449 pin sekaligus | Filter `risk_level IN ('empty','low','high','full')` |
+| Peta padat tak terbaca | 2.440 pin sekaligus | Filter `risk_level IN ('empty','low','high','full')` |
+| Chart 8 kosong | View belum dibangun | Jalankan DAG `citibike_transform_batch`, bukan DAG streaming — `station_volatility` tidak ada di daftar model eksplisit DAG streaming |
+| Baris chart 8 bernama "Stasiun tak terpetakan" | Stasiun ada di feed GBFS tapi tidak punya riwayat trip, jadi tidak ada di `dim_station` | Normal; namanya diisi dari potongan id agar tetap terbaca |
 
 ### Mart datar (semua angkanya sama)
 

@@ -6,8 +6,13 @@
 #   shuhaib_citibike_staging | shuhaib_citibike_intermediate
 #   shuhaib_citibike_marts   | shuhaib_citibike_dashboard
 #
-# Materialisasi dipilih untuk menekan biaya query:
-#   staging/intermediate/dashboard = view, marts/core = table.
+# Materialisasi dipilih untuk menekan biaya query. BigQuery menagih BYTES yang
+# dipindai, bukan jumlah query, sehingga keputusannya bergantung pada rasio
+# build : baca:
+#   staging/intermediate = view  -> tidak disimpan, dihitung hanya saat dipakai
+#   marts (core & dashboard) = table -> dibangun sekali per run, dibaca berulang
+#
+# Satu pengecualian: station_volatility (view). Alasannya ada di kepala model itu.
 #
 # Tag dipakai oleh DAG Airflow: `dbt run --select tag:staging` dsb.
 # ============================================================
@@ -61,7 +66,10 @@ models:
         +schema: marts
         +tags: ["marts", "core"]
       dashboard:
-        +materialized: view
+        # Table, bukan view. Mart di sini dibaca berulang oleh BI sementara
+        # dibangun hanya sekali per run — sebagai view, setiap kali dashboard
+        # dibuka berarti memindai ulang sumbernya (fct_trips ~5,9 juta baris).
+        +materialized: table
         +schema: dashboard
         +tags: ["marts", "dashboard"]
 
