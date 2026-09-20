@@ -17,8 +17,22 @@ saat badai alert terjadi.
 
 State disimpan di database Airflow (Variable), bukan memori proses -- task
 berjalan di proses terpisah sehingga state di memori tidak terlihat antar
-task. DEDUP sebaiknya >= WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES, kalau tidak
-satu DAG-run gagal yang sama dilaporkan berulang.
+task.
+
+Ada DUA jendela dedup, dan alasannya berbeda:
+
+- ``DEDUP_WINDOW_SECONDS`` (default 60 menit) untuk alert per task dan
+  peringatan watchdog.
+- ``ALERT_DAGRUN_DEDUP_WINDOW_SECONDS`` (default 240 menit), dipakai khusus
+  ringkasan DAG-run lewat ``should_send(..., window_seconds=...)``. Nilainya
+  harus >= ``WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES``, kalau tidak satu DAG-run
+  gagal yang sama dilaporkan berulang setiap kali jendelanya kedaluwarsa
+  sementara run-nya masih terlihat oleh watchdog.
+
+Jendela DAG-run sengaja dipisah, bukan dengan menaikkan DEDUP_WINDOW_SECONDS:
+menaikkan yang global akan ikut melonggarkan kepekaan peringatan streaming
+(mis. freshness), sehingga gangguan baru pada pemeriksaan yang sama dalam
+4 jam berikutnya bisa tertahan.
 """
 from __future__ import annotations
 
@@ -32,13 +46,13 @@ log = logging.getLogger(__name__)
 
 # Jendela deduplikasi untuk alert dengan kunci sama (detik).
 #
-# Nilainya sengaja dibuat >= WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES (60 menit)
-# di watchdog_pipeline. Alasannya: watchdog mencari DAG-run gagal dalam
-# jendela 60 menit dan berjalan tiap 10 menit. Bila jendela dedup lebih
-# pendek, satu run gagal yang sama akan dilaporkan berulang kali — teramati
-# 3 kali per jam sebelum nilainya diselaraskan. Dengan keduanya sama, tiap
-# kegagalan dilaporkan tepat sekali, sementara alert per task harian tetap
-# terkirim setiap hari karena jaraknya jauh lebih besar dari satu jam.
+# Berlaku untuk alert per task dan peringatan watchdog. Ringkasan DAG-run
+# memakai jendela sendiri yang lebih panjang — lihat docstring modul.
+#
+# Dulu nilainya disamakan dengan lookback watchdog (60 menit) supaya satu run
+# gagal tidak dilaporkan berulang; sekarang pemisahan itu dilakukan lewat
+# jendela khusus, sehingga nilai ini bebas tetap pendek. Jendela pendek
+# berarti gangguan baru pada pemeriksaan yang sama tetap diberitahukan.
 DEDUP_WINDOW_SECONDS = int(os.getenv("ALERT_DEDUP_WINDOW_SECONDS", "3600"))
 # Jeda minimum antar pengiriman ke webhook (detik). Slack membatasi
 # sekitar 1 pesan/detik; nilai ini sengaja lebih longgar.
@@ -74,31 +88,44 @@ def _set_var(key: str, value) -> None:
         log.warning("Tidak bisa menyimpan Variable '%s': %s", key, exc)
 
 
-def should_send(dedup_key: str) -> bool:
+def should_send(dedup_key: str, window_seconds: int | None = None) -> bool:
     """True bila alert dengan kunci ini belum dikirim dalam jendela dedup.
 
+    Args:
+        window_seconds: Jendela khusus untuk alert ini. Bila None, dipakai
+            ``DEDUP_WINDOW_SECONDS``. Diperlukan karena ringkasan DAG-run
+            harus tetap terkirim selama DAG-run-nya masih terlihat oleh
+            watchdog — jendelanya mengikuti lookback watchdog, yang lebih
+            panjang daripada jendela alert lain. Lihat catatan di
+            ``alert_utils.DAGRUN_DEDUP_WINDOW_SECONDS``.
+
     Kunci kosong selalu diizinkan — dipakai untuk alert yang memang harus
-    selalu terkirim (mis. ringkasan kegagalan sebuah DAG-run).
+    selalu terkirim.
     """
     if not dedup_key:
         return True
 
+    # `is None` dipakai, bukan `or`, supaya window_seconds=0 tetap dihormati
+    # sebagai "tanpa dedup" alih-alih jatuh ke nilai default.
+    window = DEDUP_WINDOW_SECONDS if window_seconds is None else window_seconds
     state = _get_var(_VAR_LAST_KEY, {}) or {}
     last = state.get(dedup_key)
     if last:
         try:
             last_dt = datetime.fromisoformat(last)
-            if _now() - last_dt < timedelta(seconds=DEDUP_WINDOW_SECONDS):
+            if _now() - last_dt < timedelta(seconds=window):
                 log.info(
                     "Alert '%s' ditahan (dedup %ss, terakhir %s).",
-                    dedup_key, DEDUP_WINDOW_SECONDS, last,
+                    dedup_key, window, last,
                 )
                 return False
         except ValueError:
             pass  # format lama/rusak -> anggap belum pernah dikirim
 
     # Bersihkan entri kedaluwarsa agar Variable tidak tumbuh tanpa batas.
-    batas = _now() - timedelta(seconds=DEDUP_WINDOW_SECONDS * 4)
+    # Memakai jendela terpanjang yang mungkin, supaya entri milik alert
+    # berjendela panjang tidak terhapus sebelum kedaluwarsa.
+    batas = _now() - timedelta(seconds=max(DEDUP_WINDOW_SECONDS, window) * 4)
     bersih = {}
     for k, v in state.items():
         try:

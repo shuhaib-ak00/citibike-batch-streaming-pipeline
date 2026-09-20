@@ -128,7 +128,7 @@ def _send_webhook(payload: dict[str, Any]) -> None:
     #   rate_limit_ok   -> menjaga batas keras Slack (±1 pesan/detik)
     #   burst_guard_ok  -> membatasi badai alert kegagalan task
     dedup_key = payload.get("dedup_key") or ""
-    if not alert_throttle.should_send(dedup_key):
+    if not alert_throttle.should_send(dedup_key, payload.get("dedup_window_seconds")):
         return
     if not alert_throttle.rate_limit_ok():
         return
@@ -209,6 +209,21 @@ def notify(context: dict[str, Any], *, severity: str = "ERROR", reason: str = ""
     return payload
 
 
+# Jendela dedup khusus untuk ringkasan DAG-run, terpisah dari
+# ALERT_DEDUP_WINDOW_SECONDS.
+#
+# Alasannya: watchdog mencari DAG-run gagal ke belakang selama
+# WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES (240 menit), sehingga satu run gagal
+# tetap terlihat oleh 24 siklus watchdog berturut-turut. Kalau jendela
+# dedup-nya lebih pendek daripada itu, run yang sama dilaporkan berulang
+# setiap kali jendelanya kedaluwarsa. Menyamakan keduanya lewat
+# ALERT_DEDUP_WINDOW_SECONDS juga bukan pilihan, karena itu akan ikut
+# melonggarkan kepekaan peringatan streaming (freshness, DLQ, karantina).
+DAGRUN_DEDUP_WINDOW_SECONDS = int(
+    os.getenv("ALERT_DAGRUN_DEDUP_WINDOW_SECONDS", "14400")
+)
+
+
 def alert_dag_run_failed(dag_id: str, run_id: str) -> dict[str, Any]:
     """Kirim SATU alert ringkasan untuk seluruh kegagalan sebuah DAG-run.
 
@@ -257,8 +272,11 @@ def alert_dag_run_failed(dag_id: str, run_id: str) -> dict[str, Any]:
         "total_tasks": total,
         "detected_at": _now_iso(),
         # Kunci dedup menyertakan run_id: tiap run boleh melapor sekali,
-        # tetapi run yang sama tidak diulang-ulang.
+        # tetapi run yang sama tidak diulang-ulang. Jendelanya lebih panjang
+        # daripada alert lain karena run-nya tetap terlihat oleh watchdog
+        # selama masa lookback.
         "dedup_key": f"dagrun:{dag_id}:{run_id}",
+        "dedup_window_seconds": DAGRUN_DEDUP_WINDOW_SECONDS,
     }
 
     log.error("DAG RUN FAILURE ALERT: %s", json.dumps(payload, ensure_ascii=False))

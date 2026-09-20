@@ -10,7 +10,7 @@ Chart 1-7 memakai mart ber-materialisasi **table**, sedangkan chart 8 memakai
 
 ---
 
-## Kenapa chart 5-6 butuh perlakuan berbeda
+## Kenapa chart streaming butuh perlakuan berbeda
 
 Chart batch (1-4) aman memakai view: datanya hanya berubah setelah `dbt run`.
 Chart streaming sebaliknya — tanpa auto-refresh, tabelnya tampak beku dan tidak
@@ -194,6 +194,18 @@ terkini** — pertanyaan yang tidak bisa dijawab oleh salah satunya sendiri:
 |---|---|
 | Mart | `station_supply_demand` |
 | Visualisasi | **Bar** (horizontal) + **Table** untuk detail |
+
+> ⚠️ **Chart ini diperbarui HARIAN, bukan tiap jam seperti chart 5 dan 6.**
+> Mart `station_supply_demand` tidak ada di daftar model DAG streaming, jadi ia
+> hanya dibangun ulang oleh DAG batch. Sisi permintaan memang data historis
+> (tidak masalah), tetapi sisi pasokan bisa tertinggal sampai 24 jam.
+>
+> Konsekuensinya saat demo: auto-refresh Metabase akan me-request ulang kartu
+> ini tiap menit, tapi angkanya tidak berubah — sedangkan chart 5 dan 6 di
+> sebelahnya bergerak. Itu **bukan kerusakan**. Kalau penguji menanyakannya:
+> chart 7 menyertakan permintaan historis yang berat dihitung dari `fct_trips`
+> (5,9 juta baris), sehingga kesegaran per jam tidak sepadan dengan biayanya.
+> Kolom `last_snapshot_at` bisa diklik untuk memeriksa umurnya.
 
 **Query A — stasiun prioritas pengiriman sepeda:**
 

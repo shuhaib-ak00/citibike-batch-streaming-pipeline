@@ -35,9 +35,20 @@ from common.alert_utils import alert_dag_run_failed
 
 log = logging.getLogger(__name__)
 
-# DAG-run gagal yang lebih tua dari ini tidak dilaporkan lagi. Nilainya harus
-# lebih besar dari jeda jadwal, kalau tidak ada run yang sempat terlihat.
-LOOKBACK_MINUTES = int(os.getenv("WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES", "60"))
+# DAG-run gagal yang lebih tua dari ini tidak dilaporkan lagi.
+#
+# Nilainya harus melebihi **celah jadwal terpanjang** yang mungkin terjadi,
+# bukan sekadar jeda jadwal normal. Terbukti nyata: pernah ada celah ±3 jam
+# (00:40 -> 03:40) karena seluruh stack sempat mati, dan kegagalan pada 00:24
+# tidak pernah dilaporkan oleh siapa pun — saat watchdog hidup lagi, umur
+# kegagalan itu sudah 196 menit, di luar jendela 60 menit yang lama.
+#
+# 240 menit dipilih agar pemulihan setelah outage beberapa jam tetap
+# memunculkan kegagalan yang terlewat. Konsekuensinya satu run gagal terlihat
+# oleh 24 siklus watchdog berturut-turut, sehingga jendela dedup ringkasan
+# DAG-run harus ikut memanjang — lihat DAGRUN_DEDUP_WINDOW_SECONDS di
+# common/alert_utils.py.
+LOOKBACK_MINUTES = int(os.getenv("WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES", "240"))
 
 # Watchdog tidak melaporkan kegagalan miliknya sendiri; itu akan membuatnya
 # melapor tanpa henti dan tidak ada gunanya.

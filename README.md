@@ -232,6 +232,7 @@ menjelaskan pipeline:
 |---|---|---|
 | Daftar 7 DAG | `docs/screenshots/doc-01-airflow-dag-list.png` | Jadwal tiap DAG |
 | Grid ingestion | `docs/screenshots/doc-09-grid-ingest-trip.png` | Task paralel — satu kotak = satu berkas CSV |
+| Grid streaming | `docs/screenshots/doc-08-grid-transform-streaming.png` | Kelima task DAG streaming hijau, jadwal per jam |
 | Dataset scheduling | `docs/screenshots/doc-07-DAG-transform-batch.png` | `transform_batch` terpicu Dataset, bukan cron |
 | Kafka UI | `docs/screenshots/doc-02-kafkaUI.png` | Partisi topik dan consumer lag |
 | Alert masuk | `docs/screenshots/doc-03-slack-alert.png` | Alert benar-benar terkirim, bukan sekadar terpasang |

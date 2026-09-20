@@ -348,13 +348,20 @@ bukan `restart`) karena variabel lingkungan hanya dibaca saat container dibuat.
 | `CONSUMER_LIVENESS_MINUTES` | 10 | datalake dianggap berhenti menerima tulisan |
 | `DLQ_WINDOW_MINUTES` / `DLQ_ALERT_ROWS` | 30 / 200 | lonjakan payload rusak |
 | `STREAMING_REJECTION_THRESHOLD_PCT` | 5 | proporsi karantina streaming |
-| `WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES` | 60 | seberapa jauh ke belakang DAG-run gagal dicari |
-| `ALERT_DEDUP_WINDOW_SECONDS` | 3600 | alert berulang dengan kunci sama ditahan |
+| `WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES` | 240 | seberapa jauh ke belakang DAG-run gagal dicari |
+| `ALERT_DEDUP_WINDOW_SECONDS` | 3600 | alert berulang dengan kunci sama ditahan (per task & watchdog) |
+| `ALERT_DAGRUN_DEDUP_WINDOW_SECONDS` | 14400 | jendela dedup khusus ringkasan DAG-run |
 | `ALERT_BURST_MAX_ALERTS` | 5 | batas pesan kegagalan task per menit |
 
-`ALERT_DEDUP_WINDOW_SECONDS` sebaiknya tidak lebih pendek dari
-`WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES`, kalau tidak satu DAG-run gagal akan
-dilaporkan berulang kali.
+`ALERT_DAGRUN_DEDUP_WINDOW_SECONDS` harus **>=** `WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES`,
+kalau tidak satu DAG-run gagal dilaporkan berulang setiap kali jendelanya
+kedaluwarsa sementara run-nya masih terlihat oleh watchdog. Jendela ini dipisah
+dari `ALERT_DEDUP_WINDOW_SECONDS` supaya jendela global tetap pendek — menaikkan
+yang global akan ikut menahan gangguan **baru** pada pemeriksaan streaming.
+
+**Kenapa lookback 240 menit, bukan 60.** Nilainya harus melebihi celah jadwal
+terpanjang yang mungkin terjadi. Terbukti: pernah ada celah ±3 jam karena stack
+mati, dan kegagalan di dalamnya tidak pernah dilaporkan dengan nilai 60.
 
 ### Menguji alert tanpa menunggu kegagalan nyata
 
@@ -381,6 +388,8 @@ pada percobaan kedua log akan memuat `ditahan (dedup ...)`.
 | DAG tidak muncul di UI | error import di `dags/` | `docker compose exec airflow-scheduler airflow dags list-import-errors` |
 | DAG terjadwal tidak pernah jalan | DAG ter-pause; DAG ber-jadwal Dataset gagal **tanpa error apa pun** | cek `airflow dags list -o plain`, pastikan `is_paused_upon_creation=False` lalu `airflow dags unpause <dag_id>` |
 | Alert terpasang tetapi tidak pernah berbunyi | `on_failure_callback` tingkat DAG gagal karena `NotFullyPopulated` pada DAG ber-dynamic task mapping | jangan pakai callback tingkat DAG; pakai `citibike_watchdog_pipeline` (lihat `architecture.md` §6) |
+| Chart 7 Metabase tampak beku | `station_supply_demand` hanya dibangun DAG batch (harian), bukan DAG streaming | normal; chart 5-6 memang per jam, chart 7 harian — lihat `metabase/dashboard_streaming.md` Chart 7 |
+| Alert DAG-run yang sama terkirim berkali-kali | jendela dedup DAG-run lebih pendek daripada lookback watchdog | pastikan `ALERT_DAGRUN_DEDUP_WINDOW_SECONDS` (14400) >= `WATCHDOG_FAILED_RUN_LOOKBACK_MINUTES` (240 menit) |
 | Alert sama terkirim berkali-kali | kunci dedup berbeda per task | cek `ALERT_BURST_MAX_ALERTS` dan `ALERT_DEDUP_WINDOW_SECONDS` |
 | Perubahan `.env` tidak berpengaruh | variabel lingkungan hanya dibaca saat container dibuat | `docker compose up -d` (recreate), bukan `restart` |
 | `DELETE` ke tabel dbt gagal: "has type VIEW" | model staging bermaterialisasi view, jadi tidak bisa di-DELETE | hapus perintah DELETE-nya; view tidak menyimpan data |
