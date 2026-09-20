@@ -206,7 +206,7 @@ Potret **2026-09-20** dari project `jcdeah-009`.
 | `dim_date` | 271 hari (buffer 7 hari) | Bertambah tiap hari |
 | `fct_station_status` | 954.345 baris (487 snapshot) | Bertambah saat streaming hidup |
 | `int_station_status_changes` | 73.244 baris (7,67% dari fct) | Bertambah saat streaming hidup |
-| `dbt test` | **125 lulus, 0 gagal** | Termasuk test mart operasional & volatilitas |
+| `dbt test` | **127 lulus, 0 gagal** | Termasuk test mart operasional & volatilitas |
 | Kafka consumer lag | 0 | Diukur saat streaming berjalan |
 | Watchdog streaming | 4/4 pemeriksaan sehat | Diukur saat streaming berjalan |
 
@@ -235,7 +235,7 @@ menjelaskan pipeline:
 | Dataset scheduling | `docs/screenshots/doc-07-DAG-transform-batch.png` | `transform_batch` terpicu Dataset, bukan cron |
 | Kafka UI | `docs/screenshots/doc-02-kafkaUI.png` | Partisi topik dan consumer lag |
 | Alert masuk | `docs/screenshots/doc-03-slack-alert.png` | Alert benar-benar terkirim, bukan sekadar terpasang |
-| `dbt test` | `docs/screenshots/doc-10-dbt-test.png` | **125 lulus, 0 gagal** |
+| `dbt test` | `docs/screenshots/doc-10-dbt-test.png` | **127 lulus, 0 gagal** |
 | Dashboard | [`metabase/README.md`](metabase/README.md#hasil-dashboard) | Hasil 8 chart |
 
 ## Dokumentasi

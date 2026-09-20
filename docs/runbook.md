@@ -395,13 +395,13 @@ pada percobaan kedua log akan memuat `ditahan (dedup ...)`.
 
 Potret **2026-09-20** dari project `jcdeah-009`.
 
-`dbt test` **125/125 lulus** (PASS=125, WARN=0, ERROR=0) — dijalankan ulang
+`dbt test` **127/127 lulus** (PASS=127, WARN=0, ERROR=0) — dijalankan ulang
 setelah lapisan CDC ditambahkan **dan** setelah strategi incremental arsip
 diganti ke `merge`. Rekonsiliasi `raw = valid + rejected` dan
 `fct_trips = valid` **diverifikasi ulang pada potret ini dan keduanya
 seimbang**: 5.981.588 = 5.952.072 + 29.516.
 
-![dbt test — 125 lulus, 0 gagal](screenshots/doc-10-dbt-test.png)
+![dbt test — 127 lulus, 0 gagal](screenshots/doc-10-dbt-test.png)
 
 Streaming berjalan dengan Kafka lag 0 dan watchdog melaporkan keempat
 pemeriksaan sehat — keduanya diukur **saat streaming hidup**. Streaming kini

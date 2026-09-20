@@ -733,8 +733,8 @@ tidak perlu membaca marts/core. Dipakai `dim_station` (1:1) dan
 | `region_id` | STRING | wilayah |
 | `trip_mentions` | INT64 | berapa kali stasiun muncul di riwayat trip |
 | `first_seen_at` / `last_seen_at` | TIMESTAMP | rentang kemunculan |
-| `has_capacity_info` | BOOL | FALSE bila `capacity` NULL |
 | `is_missing_from_gbfs` | BOOL | TRUE untuk 38 stasiun yang tidak ada di feed |
+| `has_capacity_info` | BOOL | TRUE bila `capacity` terisi. Selalu TRUE/FALSE, tidak pernah NULL |
 
 > Wajib **table**, bukan view: `int_station_risk_calculation` membacanya tiap
 > jam, dan di bawahnya ada `int_stations_deduplicated` → `stg_trips` →
@@ -1022,6 +1022,7 @@ diperbaiki — bukan kekhawatiran teoretis.
 | `PARTITION BY` pada kolom yang bisa NULL | 82.183 dari 139.582 baris (59%) salah | Di BigQuery semua NULL masuk **satu** partisi, bukan diabaikan. Kunci diff harus kolom yang tidak pernah NULL (`gbfs_station_id`). |
 | Benih CDC dari satu snapshot | 3 stasiun dapat `op='c'` palsu | Snapshot batas tidak selalu lengkap. Ambil benih **per stasiun** dari tabel tujuan. |
 | `insert_overwrite` pada model yang hanya mengeluarkan baris baru | 5.494 dari 9.990 perubahan (55%) di satu tanggal terhapus | `insert_overwrite` mengganti **seluruh** partisi yang tersentuh, bukan menggabungkannya. `copy_partitions=True` hanya melindungi partisi lain yang tidak tersentuh — ia **tidak** menyelesaikan penggantian partisi yang sama. Untuk model append-only, pakai `merge` + `unique_key`. |
+| Perbandingan pada kolom yang bisa NULL untuk mengisi flag BOOLEAN | `has_capacity_info` NULL di 38 stasiun, sehingga `WHERE NOT has_capacity_info` diam-diam kehilangan 38 baris | `NULL > 0` menghasilkan **NULL**, bukan FALSE. Flag BOOLEAN lebih baik **diturunkan** dari kolom yang diwakilinya (`capacity IS NOT NULL`) daripada dihitung terpisah dari sumbernya — dengan begitu divergensi jadi mustahil, bukan sekadar diperbaiki. |
 | Test yang hanya memeriksa duplikat | `op='c'` hilang di satu stasiun tidak tertangkap selama berhari-hari | Idempotensi dan kelengkapan itu berbeda. Filter incremental memberi idempotensi; kelengkapan butuh test tersendiri, mis. membandingkan jumlah baris dengan sumbernya. |
 | Join metadata di akhir query | 130,2 MiB → 28,1 MiB setelah diperbaiki (4,6×) | Membawa kolom sejak CTE sumber mencegah tabel dipindai dua kali. |
 | "Tidak ada perubahan" vs "tidak ada data" | dwell time "3.964 menit" — seluruhnya artefak | Interval panjang bisa berarti streaming mati. Perlu kolom `is_possible_gap`. |

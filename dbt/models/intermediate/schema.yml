@@ -42,6 +42,14 @@ models:
       intermediate tidak perlu membaca marts/core. Kolomnya tidak diuji ulang
       di sini: dim_station membaca tabel ini 1:1 dan sudah memikul not_null /
       unique untuk station_key, station_id, dan gbfs_station_id.
+    data_tests:
+      # Diletakkan di level MODEL, bukan level kolom: pada level kolom
+      # dbt_utils menuliskan nama kolom tepat sebelum ekspresinya, sehingga
+      # became `has_capacity_info has_capacity_info = (capacity IS NOT NULL)`
+      # dan BigQuery menolaknya. Jebakan yang sama sudah pernah terjadi di
+      # int_station_status_changes.
+      - dbt_utils.expression_is_true:
+          expression: "has_capacity_info = (capacity IS NOT NULL)"
     columns:
       - name: station_id
         description: ID legacy dari riwayat trip — kunci yang dipakai fct_trips.
@@ -54,6 +62,13 @@ models:
           Kapasitas dock dari GBFS. NULL berarti tidak diketahui, termasuk
           saat GBFS melaporkan 0 — nol tidak dipakai karena membuat
           occupancy_rate_pct menjadi bagi-nol.
+      - name: has_capacity_info
+        description: >
+          TRUE tepat ketika `capacity` terisi. Selalu TRUE atau FALSE, tidak
+          pernah NULL — flag ini diturunkan dari kolom `capacity`, bukan
+          dihitung ulang dari sumbernya.
+        data_tests:
+          - not_null
 
   - name: int_station_risk_calculation
     description: >

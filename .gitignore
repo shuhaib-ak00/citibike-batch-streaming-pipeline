@@ -66,3 +66,9 @@ Thumbs.db
 # FILE BRIEF
 Guideline & Standar Penilaian Final Project - JCDEAH-009.md
 Project_Brief_CitiBike_Pipeline.md
+# ===== Screenshot duplikat (disimpan lokal untuk slide, tidak di repo) =====
+# Isinya sama dengan metabase/chart-*.png yang sudah di-commit.
+docs/screenshots/doc-04-metabase-daily-trips.png
+docs/screenshots/doc-05-metabase-top-station.png
+docs/screenshots/doc-06-station-availability.png
+docs/screenshots/doc-11-metabase-station-recommended-action.png
