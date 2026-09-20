@@ -221,6 +221,23 @@ Potret **2026-09-20** dari project `jcdeah-009`.
 > BigQuery. Dua baris terakhir merujuk keadaan terakhir saat streaming hidup,
 > bukan keadaan sekarang.
 
+## Bukti Visual
+
+Screenshot hasil dashboard dan bukti operasional disimpan di
+[`metabase/`](metabase/README.md#hasil-dashboard) (8 chart) dan
+[`docs/screenshots/`](docs/screenshots). Yang paling sering dipakai saat
+menjelaskan pipeline:
+
+| Bukti | Berkas | Menunjukkan |
+|---|---|---|
+| Daftar 7 DAG | `docs/screenshots/doc-01-airflow-dag-list.png` | Jadwal tiap DAG |
+| Grid ingestion | `docs/screenshots/doc-09-grid-ingest-trip.png` | Task paralel — satu kotak = satu berkas CSV |
+| Dataset scheduling | `docs/screenshots/doc-07-DAG-transform-batch.png` | `transform_batch` terpicu Dataset, bukan cron |
+| Kafka UI | `docs/screenshots/doc-02-kafkaUI.png` | Partisi topik dan consumer lag |
+| Alert masuk | `docs/screenshots/doc-03-slack-alert.png` | Alert benar-benar terkirim, bukan sekadar terpasang |
+| `dbt test` | `docs/screenshots/doc-10-dbt-test.png` | **125 lulus, 0 gagal** |
+| Dashboard | [`metabase/README.md`](metabase/README.md#hasil-dashboard) | Hasil 8 chart |
+
 ## Dokumentasi
 
 | Dokumen | Isi |

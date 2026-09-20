@@ -1,12 +1,18 @@
 # Dashboard Batch (Metabase) — 4 Chart v1
 
 Resep langkah demi langkah untuk chart **batch** (chart 1–4).
-Chart streaming (5–7) dibahas terpisah di
+Chart streaming (5–8) dibahas terpisah di
 [`dashboard_streaming.md`](dashboard_streaming.md).
 
 **Sumber data:** dataset `shuhaib_citibike_dashboard` (hasil dbt).
-Semua mart adalah **view**, jadi chart selalu menampilkan data terbaru
-setelah `dbt run`.
+Keempat mart di sini bermaterialisasi **table**, dibangun ulang setiap
+`dbt run` — alasannya di [`../docs/erd.md`](../docs/erd.md) §6.
+
+**Screenshot hasil setiap chart** ada di folder ini, dirangkum di
+[`README.md`](README.md#hasil-dashboard). Perhatikan bahwa **penomoran nama
+berkas berbeda** dari penomoran di dokumen ini: `chart-2-hourly-heatmap.png`
+adalah Chart 3, dan `chart-3-dan-4-member-casual-dan-top-station.png` memuat
+Chart 4 sekaligus Chart 2.
 
 ---
 
@@ -31,6 +37,8 @@ setelah `dbt run`.
 
 **Tujuan bisnis:** melihat tren demand harian; dasar keputusan alokasi
 tenaga rebalancing per hari.
+
+![Chart 1 — tren trip harian](chart-1-daily-trips.png)
 
 | Item | Nilai |
 |---|---|
@@ -66,6 +74,8 @@ ORDER BY date_day
 
 **Tujuan bisnis:** stasiun dengan aktivitas tertinggi = prioritas pengawasan
 ketersediaan sepeda.
+
+![Chart 2 dan 4 — top 10 stasiun tersibuk & member vs casual](chart-3-dan-4-member-casual-dan-top-station.png)
 
 | Item | Nilai |
 |---|---|
@@ -164,6 +174,8 @@ tim ops butuh metrik net_flow yang dihitung otomatis.
 
 **Tujuan bisnis:** membuktikan pola jam sibuk komuter; dasar penjadwalan
 rebalancing **proaktif** (sebelum jam sibuk, bukan sesudah).
+
+![Chart 3 — heatmap pola jam × hari](chart-2-hourly-heatmap.png)
 
 ### ⚠️ Batasan Metabase: Pivot Table tidak bisa dari Native SQL
 
@@ -289,6 +301,8 @@ Value = `total_trips`.
 
 **Tujuan bisnis:** memahami profil pengguna; menentukan segmen mana yang
 paling terdampak bila stasiun kosong/penuh.
+
+![Chart 4 dan 2 — member vs casual & top 10 stasiun tersibuk](chart-3-dan-4-member-casual-dan-top-station.png)
 
 | Item | Nilai |
 |---|---|

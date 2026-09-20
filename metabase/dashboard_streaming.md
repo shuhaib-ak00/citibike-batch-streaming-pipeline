@@ -38,6 +38,8 @@ Karena itu dua hal disiapkan khusus:
 **Tujuan bisnis:** melihat sebaran spasial stasiun bermasalah sekaligus —
 apakah masalahnya mengelompok di satu kawasan atau menyebar.
 
+![Chart 5 — peta ketersediaan live](chart-5-station-need-attention.png)
+
 | Item | Nilai |
 |---|---|
 | Mart | `station_availability_realtime` |
@@ -116,6 +118,8 @@ Ini chart paling operasional dari seluruh dashboard. Karena itu mart-nya
 sudah disaring: hanya stasiun yang **beroperasi**, datanya **tidak basi**,
 dan **punya kapasitas** — tiga syarat agar angkanya bisa ditindaklanjuti.
 
+![Chart 6 — tabel stasiun berisiko](chart-6-recommended-action-for-station.png)
+
 | Item | Nilai |
 |---|---|
 | Mart | `station_risk_monitoring` |
@@ -183,6 +187,8 @@ terkini** — pertanyaan yang tidak bisa dijawab oleh salah satunya sendiri:
 
 > "Stasiun ini secara historis banyak ditinggalkan, tetapi sekarang sepedanya
 > menipis. Berarti ia butuh pengiriman sepeda **sekarang**."
+
+![Chart 7 — supply vs demand per stasiun](chart-7-station-in-need-and-more-supply.png)
 
 | Item | Nilai |
 |---|---|
@@ -273,6 +279,8 @@ Ini satu-satunya chart yang membaca **arsip perubahan**, bukan snapshot.
 Snapshot merekam kondisi tiap polling (mayoritas barisnya identik dengan
 polling sebelumnya), sehingga menghitung pergerakan dari sana berarti
 menghitung baris, bukan perubahan.
+
+![Chart 8 — stasiun paling fluktuatif](chart-8-high-volatility-station.png)
 
 | Item | Nilai |
 |---|---|

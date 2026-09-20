@@ -10,6 +10,55 @@ Metabase berjalan self-host lewat `docker-compose.yml`
 | [`dashboard_batch.md`](dashboard_batch.md) | Chart 1–4 dari data batch (tren, popularitas, pola jam, segmen pengguna) |
 | [`dashboard_streaming.md`](dashboard_streaming.md) | Chart 5–8 dari data streaming (peta live, tabel risiko, supply vs demand, stasiun fluktuatif) |
 
+## Hasil dashboard
+
+Screenshot seluruh 8 chart ada di folder ini. Berguna sebagai **patokan
+verifikasi**: kalau bentuk chart Anda berbeda jauh dari gambar di bawah,
+penyebabnya biasanya ada di tabel Troubleshooting resep masing-masing.
+
+### Dashboard batch (chart 1–4)
+
+| Chart | Mart | Berkas |
+|---|---|---|
+| 1 · Tren trip harian | `trip_summary_daily` | `chart-1-daily-trips.png` |
+| 2 · Top 10 stasiun tersibuk | `station_popularity` | `chart-3-dan-4-member-casual-dan-top-station.png` |
+| 3 · Heatmap jam × hari | `usage_pattern_hourly` | `chart-2-hourly-heatmap.png` |
+| 4 · Member vs casual | `member_vs_casual_behavior` | `chart-3-dan-4-member-casual-dan-top-station.png` |
+
+![Chart 1 — tren trip harian](chart-1-daily-trips.png)
+
+![Chart 2 dan 4 — top 10 stasiun tersibuk & member vs casual](chart-3-dan-4-member-casual-dan-top-station.png)
+
+![Chart 3 — heatmap pola jam × hari](chart-2-hourly-heatmap.png)
+
+### Dashboard streaming (chart 5–8)
+
+| Chart | Mart | Berkas |
+|---|---|---|
+| 5 · Peta ketersediaan | `station_availability_realtime` | `chart-5-station-need-attention.png` |
+| 6 · Tabel stasiun berisiko | `station_risk_monitoring` | `chart-6-recommended-action-for-station.png` |
+| 7 · Supply vs demand | `station_supply_demand` | `chart-7-station-in-need-and-more-supply.png` |
+| 8 · Stasiun fluktuatif | `station_volatility` | `chart-8-high-volatility-station.png` |
+
+![Chart 5 — peta ketersediaan live](chart-5-station-need-attention.png)
+
+![Chart 6 — tabel stasiun berisiko](chart-6-recommended-action-for-station.png)
+
+![Chart 7 — supply vs demand per stasiun](chart-7-station-in-need-and-more-supply.png)
+
+![Chart 8 — stasiun paling fluktuatif](chart-8-high-volatility-station.png)
+
+> ⚠️ **Penomoran nama berkas berbeda dari penomoran di dokumen resep.**
+> `chart-2-hourly-heatmap.png` adalah **Chart 3** di resep, sedangkan
+> `chart-3-dan-4-member-casual-dan-top-station.png` memuat **dua** chart:
+> top stasiun (Chart 2) dan member vs casual (Chart 4). Isinya sama, hanya
+> nomornya bergeser. Kalau ingin diseragamkan, dua berkas itu bisa di-rename:
+>
+> ```
+> chart-2-hourly-heatmap.png                   -> chart-3-hourly-heatmap.png
+> chart-3-dan-4-member-casual-dan-top-station.png -> chart-2-dan-4-batch-summary.png
+> ```
+
 ## 1. Akses
 
 | Item | Nilai |

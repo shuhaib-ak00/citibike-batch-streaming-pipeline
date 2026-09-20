@@ -166,6 +166,8 @@ langsung dibaca tanpa perintah CLI:
 > sengaja tidak ditambahkan karena tidak diperlukan untuk operasi harian.
 > Ini bukan kerusakan.
 
+![Kafka UI — daftar topik dan consumer lag](screenshots/doc-02-kafkaUI.png)
+
 Cara membuktikan UI membaca keadaan **live**, bukan cache — hentikan
 **consumer**, bukan producer:
 
@@ -398,6 +400,8 @@ setelah lapisan CDC ditambahkan **dan** setelah strategi incremental arsip
 diganti ke `merge`. Rekonsiliasi `raw = valid + rejected` dan
 `fct_trips = valid` **diverifikasi ulang pada potret ini dan keduanya
 seimbang**: 5.981.588 = 5.952.072 + 29.516.
+
+![dbt test — 125 lulus, 0 gagal](screenshots/doc-10-dbt-test.png)
 
 Streaming berjalan dengan Kafka lag 0 dan watchdog melaporkan keempat
 pemeriksaan sehat — keduanya diukur **saat streaming hidup**. Streaming kini
