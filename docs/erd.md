@@ -198,12 +198,13 @@ flowchart TD
     rss --> ssr["stg_station_status_rejected"]
     st --> ids["int_stations_deduplicated"]
     st --> dq["int_trips_dq_summary"]
-    ids --> dsm["dim_station"]
-    ri["raw.station_information"] -->|"short_name"| dsm
+    ids --> isb["int_station_id_bridge<br/>(table)"]
+    ri["raw.station_information"] -->|"short_name"| isb
+    isb --> dsm["dim_station"]
     st --> ft["fct_trips"]
     dsm --> ft
     ss --> isr["int_station_risk_calculation"]
-    dsm --> isr
+    isb --> isr
     isr --> fss["fct_station_status"]
     fss --> ilcs["int_latest_complete_snapshot"]
     fss --> isc["int_station_status_changes<br/>(incremental)"]
@@ -214,10 +215,16 @@ flowchart TD
     isr --> isd
 ```
 
-`int_station_risk_calculation` (layer intermediate) membaca `dim_station`
-(layer core), sehingga eksekusi dbt tidak dapat diurutkan per tag — intermediate
-membutuhkan core lebih dulu. Karena itu DAG menjalankan
-`dbt run --exclude tag:staging` dalam satu perintah dan membiarkan dbt
+`int_station_id_bridge` adalah titik pertemuan riwayat trip dan feed GBFS.
+Sejak pemisahan itu, `int_station_risk_calculation` tidak lagi membaca
+`dim_station`, sehingga di jalur ini layer intermediate tidak lagi bergantung
+pada marts/core.
+
+Tiga edge sejenis masih tersisa — `int_latest_complete_snapshot` dan
+`int_station_status_changes` membaca `fct_station_status`, dan
+`int_station_demand_vs_supply` membaca `fct_trips`. Karena itu eksekusi dbt
+belum dapat diurutkan per tag, dan DAG menjalankan
+`dbt run --exclude tag:staging` dalam satu perintah lalu membiarkan dbt
 menentukan urutannya.
 
 ---
@@ -236,6 +243,7 @@ menentukan urutannya.
 | Model | Materialisasi | Alasan |
 |---|---|---|
 | `stg_station_id_mapping` | **table** | Dipakai 2× oleh `stg_trips`; kalau view akan memindai raw 1,1 GiB dua kali |
+| `int_station_id_bridge` | **table** | Dibaca `int_station_risk_calculation` tiap jam; kalau view, pemindaian riwayat trip (1,1 GiB) terulang tiap jam |
 | `station_availability_realtime`, `station_risk_monitoring`, `station_supply_demand` | **table** | Di-auto-refresh tiap menit; kalau view, 1.440 refresh/hari menghabiskan kuota 1 TiB dalam ±3 hari |
 | `int_station_status_changes` | **incremental** | Arsip perubahan; harus bertahan walau sumbernya dipangkas retensi |
 
@@ -329,7 +337,7 @@ Potret **2026-09-18** dari project `jcdeah-009`.
 ## 9. Katalog kolom per layer
 
 Bagian §2 dan §3 di atas menampilkan **diagram** relasi. Bagian ini adalah
-**katalog lengkap**-nya: seluruh 29 objek di lima layer, dengan grain, penulis,
+**katalog lengkap**-nya: seluruh 30 objek di lima layer, dengan grain, penulis,
 materialisasi, dan daftar kolomnya.
 
 Daftar kolom di bawah diambil dari `INFORMATION_SCHEMA.COLUMNS` BigQuery —
@@ -340,7 +348,7 @@ yang bisa tertinggal saat model berubah.
 |---|---|---|---|---|
 | Raw | `shuhaib_citibike_raw` | 5 tabel | table (partition + cluster) | DAG ingestion & consumer streaming |
 | Staging | `shuhaib_citibike_staging` | 5 model | 4 view + 1 table | dbt |
-| Intermediate | `shuhaib_citibike_intermediate` | 7 model | 6 view + 1 incremental | dbt |
+| Intermediate | `shuhaib_citibike_intermediate` | 8 model | 6 view + 1 table + 1 incremental | dbt |
 | Marts/core | `shuhaib_citibike_marts` | 5 tabel | table | dbt |
 | Marts/dashboard | `shuhaib_citibike_dashboard` | 7 model | 4 view + 3 table | dbt |
 
@@ -586,10 +594,39 @@ terpisah.
 | `rejected_pct` | FLOAT64 | rasio (0-100) — dasar gate alert |
 | `measured_at` | TIMESTAMP | waktu pengukuran |
 
+#### `int_station_id_bridge` — 13 kolom · **table** (bukan view)
+
+Jembatan dua ruang ID (§4), dipisah dari `dim_station` agar layer intermediate
+tidak perlu membaca marts/core. Dipakai `dim_station` (1:1) dan
+`int_station_risk_calculation` (untuk `capacity`).
+
+| Kolom | Tipe | Peran |
+|---|---|---|
+| `station_key` | STRING | **PK** surrogate |
+| `station_id` | STRING | **UK** id legacy — kunci `fct_trips` |
+| `gbfs_station_id` | STRING | **UK** id GBFS — kunci `fct_station_status` |
+| `station_name` | STRING | nama dari trip, jatuh ke GBFS bila kosong |
+| `lat` / `lng` | FLOAT64 | koordinat dari trip, jatuh ke GBFS |
+| `capacity` | INT64 | NULL bila GBFS melaporkan <= 0 (§7.1) |
+| `region_id` | STRING | wilayah |
+| `trip_mentions` | INT64 | berapa kali stasiun muncul di riwayat trip |
+| `first_seen_at` / `last_seen_at` | TIMESTAMP | rentang kemunculan |
+| `has_capacity_info` | BOOL | FALSE bila `capacity` NULL |
+| `is_missing_from_gbfs` | BOOL | TRUE untuk 38 stasiun yang tidak ada di feed |
+
+> Wajib **table**, bukan view: `int_station_risk_calculation` membacanya tiap
+> jam, dan di bawahnya ada `int_stations_deduplicated` → `stg_trips` →
+> `raw.trips`. Bila view, pemindaian 1,1 GiB itu terulang 24 kali sehari.
+
+> Kolomnya tidak diuji ulang di sini — `dim_station` membaca tabel ini 1:1 dan
+> sudah memikul `not_null` / `unique` untuk `station_key`, `station_id`, dan
+> `gbfs_station_id`, sehingga cakupan pengujiannya setara.
+
 #### `int_station_risk_calculation` — 30 kolom · view
 
 Grain: 1 baris per stasiun per observasi. Inti transformasi streaming: status
-mentah **diperkaya kapasitas dari dimensi**, lalu diberi tingkat risiko.
+mentah **diperkaya kapasitas dari `int_station_id_bridge`**, lalu diberi tingkat
+risiko.
 
 | Kelompok | Kolom |
 |---|---|

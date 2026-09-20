@@ -12,6 +12,8 @@ models:
       dan 26 stasiun dilaporkan GBFS berkapasitas 0 — nol diperlakukan sebagai
       "tidak diketahui", bukan kapasitas nol. Karena itu `capacity` tidak
       diuji not_null, melainkan ditandai lewat `has_capacity_info`.
+      Definisi kolomnya ada di int_station_id_bridge; model ini membacanya 1:1,
+      sehingga pengujian di bawah berlaku untuk kedua model.
     columns:
       - name: station_key
         data_tests:

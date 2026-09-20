@@ -238,9 +238,9 @@ dbt test  --select tag:staging
 
 > Jalankan sisa model dalam **satu perintah** (`dbt run --exclude tag:staging`),
 > bukan per tag. Grafik ketergantungannya tidak mengikuti urutan layer:
-> `int_station_risk_calculation` (intermediate) membutuhkan `dim_station`
-> (core) untuk memperoleh kapasitas stasiun, sehingga build per tag akan
-> gagal dari nol.
+> `int_latest_complete_snapshot` dan `int_station_status_changes` membaca
+> `fct_station_status`, sedangkan `int_station_demand_vs_supply` membaca
+> `fct_trips`. Build per tag karena itu akan gagal dari nol.
 
 ### Dari Airflow
 

@@ -19,9 +19,11 @@ Catatan pengembangan:
   streaming diperiksa DAG ``citibike_transform_streaming``.
 
 - Model setelah staging dijalankan dalam SATU perintah, bukan per tag. Grafik
-  ketergantungan tidak mengikuti urutan layer: ``int_station_risk_calculation``
-  (intermediate) membutuhkan ``dim_station`` (core). Menjalankan per tag gagal
-  pada build dari nol karena dimensi belum ada.
+  ketergantungan tidak mengikuti urutan layer: ``int_latest_complete_snapshot``
+  dan ``int_station_status_changes`` membaca ``fct_station_status``, sedangkan
+  ``int_station_demand_vs_supply`` membaca ``fct_trips``. Menjalankan per tag
+  gagal pada build dari nol karena fakta belum ada saat layer intermediate
+  dieksekusi.
 
 - DAG ini WAJIB aktif. DAG berjadwal Dataset yang ter-pause tidak terpicu dan
   kegagalannya sunyi, tanpa error apa pun.
@@ -179,11 +181,11 @@ def citibike_transform_batch() -> None:
 
     # Model sisanya dijalankan dalam SATU perintah agar dbt sendiri yang
     # mengurutkan berdasarkan ketergantungan. Urutan tag tidak dipakai di
-    # sini karena grafiknya tidak mengikuti urutan layer secara ketat:
-    # int_station_risk_calculation (intermediate) membutuhkan dim_station
-    # (core) untuk memperoleh kapasitas stasiun. Menjalankan per tag akan
-    # gagal pada build dari nol karena dimensi belum ada saat layer
-    # intermediate dieksekusi.
+    # sini karena grafiknya tidak mengikuti urutan layer secara ketat: tiga
+    # model intermediate membaca fact table (int_latest_complete_snapshot,
+    # int_station_status_changes, int_station_demand_vs_supply). Menjalankan
+    # per tag akan gagal pada build dari nol karena fakta belum ada saat
+    # layer intermediate dieksekusi.
     run_rest = dbt_task("dbt_run_remaining", "run", extra="--exclude tag:staging")
     run_all_tests = dbt_task("dbt_test", "test", retries=0)
     gen_docs = dbt_task("dbt_docs_generate", "docs generate", retries=0)

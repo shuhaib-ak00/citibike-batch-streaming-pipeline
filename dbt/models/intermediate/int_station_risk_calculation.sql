@@ -1,15 +1,16 @@
 -- ============================================================
 -- int_station_risk_calculation — occupancy & klasifikasi risiko
 --
--- Menghubungkan status stasiun dengan dim_station untuk memperoleh `capacity`,
--- lalu menghitung occupancy dan mengklasifikasikan stasiun.
+-- Menghubungkan status stasiun dengan pemetaan stasiun untuk memperoleh
+-- `capacity`, lalu menghitung occupancy dan mengklasifikasikan stasiun.
 --
 -- Catatan pengembangan:
 --
--- - Model ini membaca dim_station (layer core) karena pemetaan id GBFS -> id
---   legacy hanya ada di sana lewat `gbfs_station_id`. JANGAN salin pemetaan itu
---   ke intermediate — akan menjadi dua sumber kebenaran yang bisa menyimpang.
---   Konsekuensinya urutan layer tidak bisa dijalankan per tag.
+-- - Membaca int_station_id_bridge, BUKAN dim_station. Tujuannya agar layer
+--   intermediate tidak bergantung pada marts/core; pemetaan id dan capacity
+--   berasal dari satu tabel yang juga dipakai dim_station. JANGAN salin
+--   pemetaan itu ke sini — akan menjadi dua sumber kebenaran yang bisa
+--   menyimpang.
 --
 -- - `is_operational` wajib ada. Terbukti dari data: 57 stasiun rutin
 --   melaporkan bikes=0 & docks=0 dengan is_renting=false. Tanpa penanda ini
@@ -39,7 +40,7 @@ stations AS (
         lng,
         capacity,
         region_id
-    FROM {{ ref('dim_station') }}
+    FROM {{ ref('int_station_id_bridge') }}
     WHERE gbfs_station_id IS NOT NULL
 ),
 

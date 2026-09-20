@@ -5,13 +5,14 @@
 
 Catatan pengembangan:
 
-- Daftar model eksplisit. JANGAN pakai tanda ``+``: itu ikut menarik
-  ``dim_station`` -> ``stg_trips`` -> memindai ``raw.trips`` (1,1 GiB) tiap
-  jam. Dimensi bersama cukup dipakai dari hasil run harian.
+- Daftar model eksplisit. JANGAN pakai tanda ``+``: itu ikut menarik rantai
+  ``int_station_id_bridge`` -> ``int_stations_deduplicated`` -> ``stg_trips``
+  -> memindai ``raw.trips`` (1,1 GiB) tiap jam. Tabel bersama itu cukup
+  dipakai dari hasil run harian.
 
 - Tag juga tidak dipakai karena ``int_station_risk_calculation`` (streaming)
-  membutuhkan ``dim_station`` (batch), sehingga urutannya tidak dapat
-  diandalkan.
+  bergantung pada ``int_station_id_bridge`` (batch), sehingga urutannya tidak
+  dapat diandalkan.
 
 - Daftar ini optimasi, bukan penjamin. DAG batch menjalankan
   ``--exclude tag:staging``, jadi model baru tetap dibangun — hanya tertunda

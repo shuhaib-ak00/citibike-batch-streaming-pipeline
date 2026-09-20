@@ -35,12 +35,32 @@ models:
       - name: rejected_pct
         description: Persentase baris gagal DQ dari file ini (0-100).
 
+  - name: int_station_id_bridge
+    description: >
+      Pemetaan id antara riwayat trip (legacy: '5343.10') dan feed GBFS
+      (UUID), 1 baris per stasiun. Dipisah dari dim_station supaya layer
+      intermediate tidak perlu membaca marts/core. Kolomnya tidak diuji ulang
+      di sini: dim_station membaca tabel ini 1:1 dan sudah memikul not_null /
+      unique untuk station_key, station_id, dan gbfs_station_id.
+    columns:
+      - name: station_id
+        description: ID legacy dari riwayat trip — kunci yang dipakai fct_trips.
+      - name: gbfs_station_id
+        description: >
+          ID feed GBFS — kunci yang dipakai fct_station_status. NULL untuk 38
+          stasiun yang tidak ada di feed (lihat is_missing_from_gbfs).
+      - name: capacity
+        description: >
+          Kapasitas dock dari GBFS. NULL berarti tidak diketahui, termasuk
+          saat GBFS melaporkan 0 — nol tidak dipakai karena membuat
+          occupancy_rate_pct menjadi bagi-nol.
+
   - name: int_station_risk_calculation
     description: >
-      Status stasiun yang diperkaya kapasitas dari dimensi, lengkap dengan
-      occupancy_rate_pct dan klasifikasi risk_level. Menandai pula stasiun
-      yang tidak beroperasi, data yang tidak segar, dan stasiun yang tidak
-      ada di dimensi.
+      Status stasiun yang diperkaya kapasitas dari int_station_id_bridge,
+      lengkap dengan occupancy_rate_pct dan klasifikasi risk_level. Menandai
+      pula stasiun yang tidak beroperasi, data yang tidak segar, dan stasiun
+      yang tidak ada di dimensi.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns:
